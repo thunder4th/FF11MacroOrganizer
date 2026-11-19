@@ -1,6 +1,7 @@
 ﻿using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Buffers.Binary;
 
 namespace FF11MacroOrganizer.Core;
 
@@ -20,6 +21,8 @@ public static class MacroBinaryCodec
     public static readonly byte[] DefaultTtlHeader = [0x01, 0x00, 0x00, 0x00, 0x88, 0xA7, 0xC7, 0x0D];
 
     private static readonly Encoding Sjis;
+
+    public static AutoTranslateDictionary Dictionary { get; } = new();
 
     static MacroBinaryCodec()
     {
@@ -43,12 +46,19 @@ public static class MacroBinaryCodec
         int start = 0;
         for (int i = 0; i < slice.Length; i++)
         {
-            // 0xFD で始まり 0xFD で終わる6バイトは定型文コードとして保護表示
+            // 0xFD で始まり 0xFD で終わる6バイトを定型文として展開表示（元バイト列は変更しない）
             if (slice[i] == 0xFD && i + 5 < slice.Length && slice[i + 5] == 0xFD)
             {
                 if (i > start) sb.Append(Sjis.GetString(slice[start..i]));
-                string code = Convert.ToHexString(slice.Slice(i + 1, 4));
-                sb.Append($"【定型文:{code}】");
+                uint code = BinaryPrimitives.ReadUInt32BigEndian(slice.Slice(i + 1, 4));
+                if (Dictionary.TryResolve(code, out string word))
+                {
+                    sb.Append($"【{word}】");
+                }
+                else
+                {
+                    sb.Append($"【定型文:{code:X8}】");
+                }
                 i += 5;
                 start = i + 1;
             }

@@ -2,10 +2,11 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="FF11 Macro Organizer"
-        Width="1320" Height="680"
-        MinWidth="1080" MinHeight="580"
+        Width="1320" Height="720"
+        MinWidth="1080" MinHeight="600"
         Background="#F3F4F6"
         WindowStartupLocation="CenterScreen"
+        SizeChanged="Window_SizeChanged"
         PreviewKeyDown="Window_PreviewKeyDown"
         Closing="Window_Closing">
 
@@ -13,10 +14,10 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="*" MinHeight="180"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-
+        
         <!-- 1. 上部ツールバー -->
         <Border Grid.Row="0" Background="White" BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,10">
             <DockPanel LastChildFill="False">
@@ -25,7 +26,7 @@
                     <Button x:Name="BtnUndo" Content="元に戻す (Ctrl+Z)" Padding="10,5" Margin="0,0,6,0" IsEnabled="False" Click="BtnUndo_Click"/>
                     <Button x:Name="BtnRedo" Content="やり直し (Ctrl+Y)" Padding="10,5" Margin="0,0,14,0" IsEnabled="False" Click="BtnRedo_Click"/>
                     <Button x:Name="BtnSave" Content="変更を保存" Padding="14,5" FontWeight="Bold"
-                            Background="#2563EB" Foreground="White" BorderThickness="0"
+                            Background="#E5E7EB" Foreground="#6B7280" BorderThickness="0"
                             IsEnabled="False" Click="BtnSave_Click"/>
                 </StackPanel>
 
@@ -52,28 +53,30 @@
 
             <!-- 左ペイン -->
             <Border Grid.Column="0" Background="White" BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" Padding="10">
-                <StackPanel>
-                    <DockPanel Margin="0,0,0,8">
-                        <TextBlock Text="左パレット" FontWeight="Bold" Foreground="#1F2937" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBlock x:Name="TxtLeftDirty" Text="" Foreground="#DC2626" FontWeight="Bold" VerticalAlignment="Center"/>
-                    </DockPanel>
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top">
+                        <DockPanel Margin="0,0,0,8">
+                            <TextBlock Text="左パレット" FontWeight="Bold" Foreground="#1F2937" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock x:Name="TxtLeftDirty" Text="" Foreground="#DC2626" FontWeight="Bold" VerticalAlignment="Center"/>
+                        </DockPanel>
 
-                    <WrapPanel Margin="0,0,0,10" VerticalAlignment="Center">
-                        <TextBlock Text="キャラ:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
-                        <ComboBox x:Name="CmbLeftChar" Width="115" Margin="0,0,8,4" SelectionChanged="LeftChar_SelectionChanged"/>
+                        <WrapPanel Margin="0,0,0,10" VerticalAlignment="Center">
+                            <TextBlock Text="キャラ:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
+                            <ComboBox x:Name="CmbLeftChar" Width="155" Margin="0,0,6,4" SelectionChanged="LeftChar_SelectionChanged"/>
 
-                        <TextBlock Text="ブック:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
-                        <ComboBox x:Name="CmbLeftBook" Width="165" Margin="0,0,8,4" SelectionChanged="LeftBook_SelectionChanged"/>
+                            <TextBlock Text="ブック:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
+                            <ComboBox x:Name="CmbLeftBook" Width="130" Margin="0,0,6,4" SelectionChanged="LeftBook_SelectionChanged"/>
 
-                        <TextBlock Text="ページ:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
-                        <Button Content="&lt;" Width="24" Margin="0,0,2,4" Click="LeftPrevPage_Click"/>
-                        <ComboBox x:Name="CmbLeftPage" Width="76" Margin="0,0,2,4" SelectionChanged="LeftPage_SelectionChanged"/>
-                        <Button Content="&gt;" Width="24" Margin="0,0,0,4" Click="LeftNextPage_Click"/>
-                    </WrapPanel>
+                            <TextBlock Text="ページ:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
+                            <Button Content="&lt;" Width="24" Margin="0,0,2,4" Click="LeftPrevPage_Click"/>
+                            <ComboBox x:Name="CmbLeftPage" Width="68" Margin="0,0,2,4" SelectionChanged="LeftPage_SelectionChanged"/>
+                            <Button Content="&gt;" Width="24" Margin="0,0,0,4" Click="LeftNextPage_Click"/>
+                        </WrapPanel>
+                    </StackPanel>
 
-                    <!-- 10x2 マクロスロットグリッド -->
-                    <UniformGrid x:Name="GridLeftSlots" Rows="2" Columns="10" Height="138"/>
-                </StackPanel>
+                    <!-- 10x2 マクロスロットグリッド（ウィンドウサイズに合わせて縦横に自動拡大） -->
+                    <UniformGrid x:Name="GridLeftSlots" Rows="2" Columns="10" Height="140" SizeChanged="SlotGrid_SizeChanged"/>
+                </DockPanel>
             </Border>
 
             <!-- 中央：ブック単位コピー操作 -->
@@ -87,28 +90,30 @@
 
             <!-- 右ペイン -->
             <Border Grid.Column="2" Background="White" BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" Padding="10">
-                <StackPanel>
-                    <DockPanel Margin="0,0,0,8">
-                        <TextBlock Text="右パレット" FontWeight="Bold" Foreground="#1F2937" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBlock x:Name="TxtRightDirty" Text="" Foreground="#DC2626" FontWeight="Bold" VerticalAlignment="Center"/>
-                    </DockPanel>
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top">
+                        <DockPanel Margin="0,0,0,8">
+                            <TextBlock Text="右パレット" FontWeight="Bold" Foreground="#1F2937" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock x:Name="TxtRightDirty" Text="" Foreground="#DC2626" FontWeight="Bold" VerticalAlignment="Center"/>
+                        </DockPanel>
 
-                    <WrapPanel Margin="0,0,0,10" VerticalAlignment="Center">
-                        <TextBlock Text="キャラ:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
-                        <ComboBox x:Name="CmbRightChar" Width="115" Margin="0,0,8,4" SelectionChanged="RightChar_SelectionChanged"/>
+                        <WrapPanel Margin="0,0,0,10" VerticalAlignment="Center">
+                            <TextBlock Text="キャラ:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
+                            <ComboBox x:Name="CmbRightChar" Width="155" Margin="0,0,6,4" SelectionChanged="RightChar_SelectionChanged"/>
 
-                        <TextBlock Text="ブック:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
-                        <ComboBox x:Name="CmbRightBook" Width="165" Margin="0,0,8,4" SelectionChanged="RightBook_SelectionChanged"/>
+                            <TextBlock Text="ブック:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
+                            <ComboBox x:Name="CmbRightBook" Width="130" Margin="0,0,6,4" SelectionChanged="RightBook_SelectionChanged"/>
 
-                        <TextBlock Text="ページ:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
-                        <Button Content="&lt;" Width="24" Margin="0,0,2,4" Click="RightPrevPage_Click"/>
-                        <ComboBox x:Name="CmbRightPage" Width="76" Margin="0,0,2,4" SelectionChanged="RightPage_SelectionChanged"/>
-                        <Button Content="&gt;" Width="24" Margin="0,0,0,4" Click="RightNextPage_Click"/>
-                    </WrapPanel>
+                            <TextBlock Text="ページ:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
+                            <Button Content="&lt;" Width="24" Margin="0,0,2,4" Click="RightPrevPage_Click"/>
+                            <ComboBox x:Name="CmbRightPage" Width="68" Margin="0,0,2,4" SelectionChanged="RightPage_SelectionChanged"/>
+                            <Button Content="&gt;" Width="24" Margin="0,0,0,4" Click="RightNextPage_Click"/>
+                        </WrapPanel>
+                    </StackPanel>
 
                     <!-- 10x2 マクロスロットグリッド -->
-                    <UniformGrid x:Name="GridRightSlots" Rows="2" Columns="10" Height="138"/>
-                </StackPanel>
+                    <UniformGrid x:Name="GridRightSlots" Rows="2" Columns="10" Height="140"/>
+                </DockPanel>
             </Border>
         </Grid>
 
@@ -117,7 +122,7 @@
             <DockPanel>
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                     <TextBlock x:Name="TxtPreviewHeader" Text="スロットを選択またはカーソルを合わせると、ここに6行の内容が表示されます"
-                               FontWeight="Bold" Foreground="#111827" FontSize="13"/>
+                               FontWeight="Bold" Foreground="#111827" FontSize="14"/>
                 </DockPanel>
 
                 <Border Background="#111827" CornerRadius="4" Padding="12,10">
@@ -127,7 +132,7 @@
                              Foreground="#F9FAFB"
                              BorderThickness="0"
                              FontFamily="Consolas, BIZ UDGothic, MS Gothic"
-                             FontSize="14"
+                             FontSize="15"
                              TextWrapping="NoWrap"
                              VerticalScrollBarVisibility="Auto"
                              HorizontalScrollBarVisibility="Auto"/>

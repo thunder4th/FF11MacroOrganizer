@@ -48,9 +48,14 @@ public partial class MainWindow : Window
     // 配色定義
     private static readonly SolidColorBrush BrushEmptyBg = new(Color.FromRgb(249, 250, 251));
     private static readonly SolidColorBrush BrushFilledBg = new(Color.FromRgb(239, 246, 255));
+    private static readonly SolidColorBrush BrushSelectedBg = new(Color.FromRgb(37, 99, 235));
     private static readonly SolidColorBrush BrushNormalBorder = new(Color.FromRgb(209, 213, 219));
     private static readonly SolidColorBrush BrushFilledBorder = new(Color.FromRgb(147, 197, 253));
-    private static readonly SolidColorBrush BrushSelectedBorder = new(Color.FromRgb(37, 99, 235));
+    private static readonly SolidColorBrush BrushSelectedBorder = new(Color.FromRgb(30, 58, 138));
+    private static readonly SolidColorBrush BrushNormalTitleFg = new(Color.FromRgb(17, 24, 39));
+    private static readonly SolidColorBrush BrushNormalKeyFg = new(Color.FromRgb(107, 114, 128));
+    private static readonly SolidColorBrush BrushSelectedTitleFg = Brushes.White;
+    private static readonly SolidColorBrush BrushSelectedKeyFg = new(Color.FromRgb(219, 234, 254));
     private static readonly SolidColorBrush BrushDropSwapBg = new(Color.FromRgb(191, 219, 254));
     private static readonly SolidColorBrush BrushDropSwapBorder = new(Color.FromRgb(37, 99, 235));
     private static readonly SolidColorBrush BrushDropCopyBg = new(Color.FromRgb(254, 215, 170));
@@ -75,6 +80,7 @@ public partial class MainWindow : Window
         _polTimer.Tick += (_, _) => UpdatePolStatus();
         _polTimer.Start();
         UpdatePolStatus();
+        MacroBinaryCodec.Dictionary.TryLoadFromHintPath(null);
     }
 
     private PaneState InitializePane(
@@ -97,7 +103,7 @@ public partial class MainWindow : Window
             {
                 Text = i < 10 ? $"C{(i + 1) % 10}" : $"A{(i - 9) % 10}",
                 FontSize = 10,
-                Foreground = new SolidColorBrush(Color.FromRgb(107, 114, 128)),
+                Foreground = BrushNormalKeyFg,
                 HorizontalAlignment = HorizontalAlignment.Left,
                 IsHitTestVisible = false
             };
@@ -105,9 +111,9 @@ public partial class MainWindow : Window
             var titleText = new TextBlock
             {
                 Text = "",
-                FontSize = 11.5,
+                FontSize = 12,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(Color.FromRgb(17, 24, 39)),
+                Foreground = BrushNormalTitleFg,
                 IsHitTestVisible = false
             };
 
@@ -117,30 +123,29 @@ public partial class MainWindow : Window
                 StretchDirection = StretchDirection.DownOnly,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 4, 0, 0),
                 IsHitTestVisible = false,
                 Child = titleText
             };
 
-            var stack = new StackPanel
-            {
-                VerticalAlignment = VerticalAlignment.Stretch,
-                IsHitTestVisible = false
-            };
-            stack.Children.Add(keyText);
-            stack.Children.Add(titleBox);
+            var innerGrid = new Grid { IsHitTestVisible = false };
+            innerGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            innerGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            Grid.SetRow(keyText, 0);
+            Grid.SetRow(titleBox, 1);
+            innerGrid.Children.Add(keyText);
+            innerGrid.Children.Add(titleBox);
 
             var border = new Border
             {
                 Margin = new Thickness(2),
-                Padding = new Thickness(4, 3, 4, 3),
-                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(4, 3, 4, 4),
+                CornerRadius = new CornerRadius(5),
                 BorderThickness = new Thickness(1.5),
                 Background = BrushEmptyBg,
                 BorderBrush = BrushNormalBorder,
                 AllowDrop = true,
                 Cursor = Cursors.Hand,
-                Child = stack,
+                Child = innerGrid,
                 ContextMenu = CreateSlotContextMenu(paneIndex, slotIndex)
             };
 
@@ -234,6 +239,7 @@ public partial class MainWindow : Window
         try
         {
             _repo.LoadFolder(dialog.FolderName);
+            MacroBinaryCodec.Dictionary.TryLoadFromHintPath(dialog.FolderName);
             _undoManager.Clear();
             _selectedSlot = null;
 
@@ -251,7 +257,10 @@ public partial class MainWindow : Window
             BindCharactersToPane(_panes[1], _repo.Characters.Count > 1 ? 1 : 0);
 
             RefreshAllUi();
-            TxtStatusMessage.Text = $"読み込み完了: {_repo.Characters.Count} キャラ検出 ({_repo.RootPath})";
+            string dictNote = MacroBinaryCodec.Dictionary.Count > 0
+                        ? $" / 定型文辞書 {MacroBinaryCodec.Dictionary.Count} 件読込済"
+                        : "";
+            TxtStatusMessage.Text = $"読み込み完了: {_repo.Characters.Count} キャラ検出 ({_repo.RootPath}){dictNote}";
         }
         catch (Exception ex)
         {
@@ -417,9 +426,12 @@ public partial class MainWindow : Window
         bool isCopy = e.KeyStates.HasFlag(DragDropKeyStates.ControlKey);
         e.Effects = isCopy ? DragDropEffects.Copy : DragDropEffects.Move;
 
-        var border = _panes[targetPaneIndex].SlotBorders[targetSlotIndex];
+        var pane = _panes[targetPaneIndex];
+        var border = pane.SlotBorders[targetSlotIndex];
         border.Background = isCopy ? BrushDropCopyBg : BrushDropSwapBg;
         border.BorderBrush = isCopy ? BrushDropCopyBorder : BrushDropSwapBorder;
+        pane.SlotTitleTexts[targetSlotIndex].Foreground = BrushNormalTitleFg;
+        pane.SlotKeyTexts[targetSlotIndex].Foreground = BrushNormalKeyFg;
         e.Handled = true;
     }
 
@@ -609,19 +621,38 @@ public partial class MainWindow : Window
         bool ignoreLock = ChkIgnorePolLock.IsChecked == true;
         string backupDir = Path.Combine(AppContext.BaseDirectory, "Backups");
 
-        var result = _repo.SaveAll(backupDir, ignoreLock);
-        if (result.Success)
+        try
         {
-            RefreshAllUi();
-            string msg = result.SavedFileCount > 0
-                ? $"{result.Message}\n\nバックアップ先:\n{result.BackupPath}"
-                : result.Message;
-            TxtStatusMessage.Text = result.Message;
-            MessageBox.Show(msg, "保存完了", MessageBoxButton.OK, MessageBoxImage.Information);
+            var result = _repo.SaveAll(backupDir, ignoreLock);
+            if (result.Success)
+            {
+                RefreshAllUi();
+                string msg = result.SavedFileCount > 0
+                    ? $"{result.Message}\n\nバックアップ先:\n{result.BackupPath}"
+                    : result.Message;
+                TxtStatusMessage.Text = result.Message;
+                MessageBox.Show(msg, "保存完了", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                MessageBox.Show(result.Message, "保存中止", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
         }
-        else
+        catch (UnauthorizedAccessException ex)
         {
-            MessageBox.Show(result.Message, "保存中止", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(
+                $"ファイルへの書き込み権限がありません。\nアプリを「管理者として実行」してください。\n\n詳細: {ex.Message}",
+                "権限エラー",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"保存中にエラーが発生しました:\n{ex.Message}",
+                "保存エラー",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
         }
     }
 
@@ -680,22 +711,41 @@ public partial class MainWindow : Window
 
     private void ResetSlotVisual(int paneIndex, int slotIndex)
     {
-        var page = _panes[paneIndex].GetCurrentPage();
-        var border = _panes[paneIndex].SlotBorders[slotIndex];
+        var pane = _panes[paneIndex];
+        var page = pane.GetCurrentPage();
+        var border = pane.SlotBorders[slotIndex];
+        var titleText = pane.SlotTitleTexts[slotIndex];
+        var keyText = pane.SlotKeyTexts[slotIndex];
+
         if (page == null)
         {
             border.Background = BrushEmptyBg;
             border.BorderBrush = BrushNormalBorder;
+            border.BorderThickness = new Thickness(1.5);
+            titleText.Foreground = BrushNormalTitleFg;
+            keyText.Foreground = BrushNormalKeyFg;
             return;
         }
 
         bool isEmpty = page.Slots[slotIndex].IsEmpty;
         bool isSelected = _selectedSlot == (paneIndex, slotIndex);
 
-        border.Background = isEmpty ? BrushEmptyBg : BrushFilledBg;
-        border.BorderBrush = isSelected
-            ? BrushSelectedBorder
-            : (isEmpty ? BrushNormalBorder : BrushFilledBorder);
+        if (isSelected)
+        {
+            border.Background = BrushSelectedBg;
+            border.BorderBrush = BrushSelectedBorder;
+            border.BorderThickness = new Thickness(2.5);
+            titleText.Foreground = BrushSelectedTitleFg;
+            keyText.Foreground = BrushSelectedKeyFg;
+        }
+        else
+        {
+            border.Background = isEmpty ? BrushEmptyBg : BrushFilledBg;
+            border.BorderBrush = isEmpty ? BrushNormalBorder : BrushFilledBorder;
+            border.BorderThickness = new Thickness(1.5);
+            titleText.Foreground = BrushNormalTitleFg;
+            keyText.Foreground = BrushNormalKeyFg;
+        }
     }
 
     private void ShowPreview(int paneIndex, int slotIndex)
@@ -776,6 +826,46 @@ public partial class MainWindow : Window
             BtnSave_Click(this, new RoutedEventArgs());
             e.Handled = true;
         }
+    }
+
+    private void SlotGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_panes[0] == null || _panes[1] == null) return;
+        if (GridLeftSlots.ActualWidth <= 0) return;
+
+        double slotWidth = GridLeftSlots.ActualWidth / 10.0;
+
+        // スロット1枠が横幅に対して自然な比率（やや横長〜正方形）になる高さを算出
+        double targetSlotHeight = Math.Clamp(slotWidth * 0.90, 70.0, 115.0);
+        double targetGridHeight = targetSlotHeight * 2.0;
+
+        if (Math.Abs(GridLeftSlots.Height - targetGridHeight) > 1.0)
+        {
+            GridLeftSlots.Height = targetGridHeight;
+            GridRightSlots.Height = targetGridHeight;
+        }
+
+        // 幅に合わせて全スロット統一の読みやすいフォントサイズを算出
+        double titleFontSize = Math.Clamp(slotWidth * 0.24, 13.0, 26.0);
+        double keyFontSize = Math.Clamp(titleFontSize * 0.60, 10.0, 15.0);
+
+        foreach (var pane in _panes)
+        {
+            for (int i = 0; i < MacroBinaryCodec.SlotsPerPage; i++)
+            {
+                pane.SlotTitleTexts[i].FontSize = titleFontSize;
+                pane.SlotKeyTexts[i].FontSize = keyFontSize;
+            }
+        }
+    }
+
+    private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (ActualHeight <= 0) return;
+
+        // プレビュー欄の文字サイズもウィンドウの高さに応じて拡大（通常15pt → 最大化時24pt前後）
+        TxtPreviewBody.FontSize = Math.Clamp(ActualHeight / 48.0, 14.0, 24.0);
+        TxtPreviewHeader.FontSize = Math.Clamp(ActualHeight / 58.0, 13.0, 20.0);
     }
 
     private void Window_Closing(object? sender, CancelEventArgs e)
