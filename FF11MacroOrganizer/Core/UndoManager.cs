@@ -150,6 +150,47 @@ public sealed class CopyBookAction : IUndoAction
         Description = $"ブックコピー: {srcChar.CharacterId} Book{srcBook} → {dstChar.CharacterId} Book{dstBook}";
     }
 
+    public sealed class CopyPageAction : IUndoAction
+    {
+        private readonly List<OverwriteSlotAction> _slotActions = new(MacroBinaryCodec.SlotsPerPage);
+
+        public string Description { get; }
+
+        public CopyPageAction(
+            CharacterMacroStore srcChar, int srcBook, int srcPageNum,
+            CharacterMacroStore dstChar, int dstBook, int dstPageNum)
+        {
+            var srcPage = srcChar.GetPage(srcBook, srcPageNum);
+            var dstPage = dstChar.GetPage(dstBook, dstPageNum);
+
+            for (int i = 0; i < MacroBinaryCodec.SlotsPerPage; i++)
+            {
+                byte[] srcBytes = srcPage.Slots[i].CloneBytes();
+                _slotActions.Add(new OverwriteSlotAction(dstPage, i, srcBytes, $"パレット複製 Slot {i}"));
+            }
+
+            Description =
+                $"パレットコピー: {srcChar.DisplayName} B{srcBook:D2}-P{srcPageNum} → {dstChar.DisplayName} B{dstBook:D2}-P{dstPageNum}";
+        }
+
+        public void Execute()
+        {
+            foreach (var action in _slotActions)
+            {
+                action.Execute();
+            }
+        }
+
+        public void Undo()
+        {
+            // IsDirty フラグを正確に元の状態へ戻すため逆順で取り消す
+            for (int i = _slotActions.Count - 1; i >= 0; i--)
+            {
+                _slotActions[i].Undo();
+            }
+        }
+    }
+
     public void Execute() => Apply(_newPagesBytes, _newTitleBytes);
     public void Undo() => Apply(_oldPagesBytes, _oldTitleBytes);
 

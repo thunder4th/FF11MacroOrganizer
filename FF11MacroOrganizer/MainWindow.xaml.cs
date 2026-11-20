@@ -1,12 +1,13 @@
-﻿using System.ComponentModel;
+﻿using FF11MacroOrganizer.Core;
+using Microsoft.Win32;
+using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using FF11MacroOrganizer.Core;
-using Microsoft.Win32;
+using static FF11MacroOrganizer.Core.CopyBookAction;
 
 namespace FF11MacroOrganizer;
 
@@ -44,6 +45,8 @@ public partial class MainWindow : Window
     private (int PaneIndex, int SlotIndex)? _dragOrigin;
     private (int PaneIndex, int SlotIndex)? _selectedSlot;
     private bool _isPolRunning;
+    private const string DefaultFf11UserDir = @"C:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI\USER";
+    private static readonly string LastFolderSettingPath = Path.Combine(AppContext.BaseDirectory, "last_folder.txt");
 
     // 配色定義
     private static readonly SolidColorBrush BrushEmptyBg = new(Color.FromRgb(249, 250, 251));
@@ -81,6 +84,7 @@ public partial class MainWindow : Window
         _polTimer.Start();
         UpdatePolStatus();
         MacroBinaryCodec.Dictionary.TryLoadFromHintPath(null);
+        Loaded += MainWindow_Loaded;
     }
 
     private PaneState InitializePane(
@@ -152,6 +156,13 @@ public partial class MainWindow : Window
             border.PreviewMouseLeftButtonDown += (s, e) => Slot_PreviewMouseLeftButtonDown(paneIndex, slotIndex, e);
             border.MouseMove += (s, e) => Slot_MouseMove(paneIndex, slotIndex, e);
             border.MouseEnter += (_, _) => ShowPreview(paneIndex, slotIndex);
+            border.MouseLeave += (_, _) =>
+            {
+                if (_selectedSlot.HasValue)
+                {
+                    ShowPreview(_selectedSlot.Value.PaneIndex, _selectedSlot.Value.SlotIndex);
+                }
+            };
             border.DragOver += (s, e) => Slot_DragOver(paneIndex, slotIndex, e);
             border.DragLeave += (_, _) => ResetSlotVisual(paneIndex, slotIndex);
             border.Drop += (s, e) => Slot_Drop(paneIndex, slotIndex, e);
@@ -211,6 +222,23 @@ public partial class MainWindow : Window
 
     // ---------- フォルダ読み込み ----------
 
+    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        // 1. 前回開いたフォルダがあれば最優先で読み込む
+        string? initialDir = LoadLastFolderPath();
+
+        // 2. なければ既定の FF11 USER フォルダを使う
+        if (string.IsNullOrEmpty(initialDir) || !Directory.Exists(initialDir))
+        {
+            initialDir = Directory.Exists(DefaultFf11UserDir) ? DefaultFf11UserDir : null;
+        }
+
+        if (!string.IsNullOrEmpty(initialDir))
+        {
+            OpenMacroFolder(initialDir, isAutoLoad: true);
+        }
+    }
+
     private void BtnOpenFolder_Click(object sender, RoutedEventArgs e)
     {
         if (_repo.HasUnsavedChanges)
@@ -228,28 +256,40 @@ public partial class MainWindow : Window
             Title = "FF11 の USER フォルダ（またはキャラフォルダ）を選択"
         };
 
-        const string defaultFf11UserDir = @"C:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI\USER";
-        if (Directory.Exists(defaultFf11UserDir))
+        string? startDir = _repo.RootPath;
+        if (string.IsNullOrEmpty(startDir) || !Directory.Exists(startDir))
         {
-            dialog.InitialDirectory = defaultFf11UserDir;
+            startDir = Directory.Exists(DefaultFf11UserDir) ? DefaultFf11UserDir : null;
+        }
+        if (!string.IsNullOrEmpty(startDir))
+        {
+            dialog.InitialDirectory = startDir;
         }
 
         if (dialog.ShowDialog() != true) return;
 
+        OpenMacroFolder(dialog.FolderName, isAutoLoad: false);
+    }
+
+    private void OpenMacroFolder(string folderPath, bool isAutoLoad)
+    {
         try
         {
-            _repo.LoadFolder(dialog.FolderName);
-            MacroBinaryCodec.Dictionary.TryLoadFromHintPath(dialog.FolderName);
+            _repo.LoadFolder(folderPath);
+            MacroBinaryCodec.Dictionary.TryLoadFromHintPath(folderPath);
             _undoManager.Clear();
             _selectedSlot = null;
 
             if (_repo.Characters.Count == 0)
             {
-                MessageBox.Show(
-                    "指定されたフォルダ内に FF11 のマクロファイル（mcr.ttl / mcr*.dat）が見つかりませんでした。",
-                    "読み込み失敗",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
+                if (!isAutoLoad)
+                {
+                    MessageBox.Show(
+                        "指定されたフォルダ内に FF11 のマクロファイル（mcr.ttl / mcr*.dat）が見つかりませんでした。",
+                        "読み込み失敗",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
                 return;
             }
 
@@ -257,14 +297,49 @@ public partial class MainWindow : Window
             BindCharactersToPane(_panes[1], _repo.Characters.Count > 1 ? 1 : 0);
 
             RefreshAllUi();
+            SaveLastFolderPath(folderPath);
+
             string dictNote = MacroBinaryCodec.Dictionary.Count > 0
-                        ? $" / 定型文辞書 {MacroBinaryCodec.Dictionary.Count} 件読込済"
-                        : "";
+                ? $" / 定型文辞書 {MacroBinaryCodec.Dictionary.Count} 件読込済"
+                : "";
             TxtStatusMessage.Text = $"読み込み完了: {_repo.Characters.Count} キャラ検出 ({_repo.RootPath}){dictNote}";
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"読み込み中にエラーが発生しました:\n{ex.Message}", "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+            if (!isAutoLoad)
+            {
+                MessageBox.Show($"読み込み中にエラーが発生しました:\n{ex.Message}", "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            else
+            {
+                TxtStatusMessage.Text = $"自動読み込みをスキップしました: {ex.Message}";
+            }
+        }
+    }
+
+    private static string? LoadLastFolderPath()
+    {
+        try
+        {
+            if (!File.Exists(LastFolderSettingPath)) return null;
+            string path = File.ReadAllText(LastFolderSettingPath).Trim();
+            return string.IsNullOrEmpty(path) ? null : path;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void SaveLastFolderPath(string folderPath)
+    {
+        try
+        {
+            File.WriteAllText(LastFolderSettingPath, folderPath);
+        }
+        catch
+        {
+            // 設定ファイルの保存失敗は無視して動作を継続
         }
     }
 
@@ -503,6 +578,38 @@ public partial class MainWindow : Window
         ShowPreview(paneIndex, slotIndex);
     }
 
+    // ---------- パレット（ページ）単位コピー ----------
+
+    private void BtnCopyPageLeftToRight_Click(object sender, RoutedEventArgs e) => ExecutePageCopy(_panes[0], _panes[1]);
+    private void BtnCopyPageRightToLeft_Click(object sender, RoutedEventArgs e) => ExecutePageCopy(_panes[1], _panes[0]);
+
+    private void ExecutePageCopy(PaneState srcPane, PaneState dstPane)
+    {
+        var srcPage = srcPane.GetCurrentPage();
+        var dstPage = dstPane.GetCurrentPage();
+        if (srcPane.CurrentCharacter == null || dstPane.CurrentCharacter == null || srcPage == null || dstPage == null) return;
+        if (ReferenceEquals(srcPage, dstPage)) return;
+
+        string srcLabel = $"{srcPane.CurrentCharacter.DisplayName} / Book {srcPane.CurrentBook:D2} ({srcPane.CurrentCharacter.GetBookTitle(srcPane.CurrentBook)}) / Page {srcPane.CurrentPageNumber}";
+        string dstLabel = $"{dstPane.CurrentCharacter.DisplayName} / Book {dstPane.CurrentBook:D2} ({dstPane.CurrentCharacter.GetBookTitle(dstPane.CurrentBook)}) / Page {dstPane.CurrentPageNumber}";
+
+        var confirm = MessageBox.Show(
+            $"コピー先パレットの全20スロットを上書きします。\nよろしいですか？\n\nコピー元: {srcLabel}\nコピー先: {dstLabel}",
+            "パレット単位コピーの確認",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (confirm != MessageBoxResult.Yes) return;
+
+        var action = new CopyPageAction(
+            srcPane.CurrentCharacter, srcPane.CurrentBook, srcPane.CurrentPageNumber,
+            dstPane.CurrentCharacter, dstPane.CurrentBook, dstPane.CurrentPageNumber);
+
+        _undoManager.Execute(action);
+        RefreshAllUi();
+        TxtStatusMessage.Text = $"{action.Description} を実行しました（未保存状態・Ctrl+Zで取り消し可能）";
+    }
+
     // ---------- ブック単位コピー ----------
 
     private void BtnCopyBookLeftToRight_Click(object sender, RoutedEventArgs e) => ExecuteBookCopy(_panes[0], _panes[1]);
@@ -535,6 +642,46 @@ public partial class MainWindow : Window
         RefreshAllUi();
         TxtStatusMessage.Text = $"{action.Description} を実行しました（未保存状態・Ctrl+Zで取り消し可能）";
     }
+
+public sealed class CopyPageAction : IUndoAction
+{
+    private readonly List<OverwriteSlotAction> _slotActions = new(MacroBinaryCodec.SlotsPerPage);
+
+    public string Description { get; }
+
+    public CopyPageAction(
+        CharacterMacroStore srcChar, int srcBook, int srcPageNum,
+        CharacterMacroStore dstChar, int dstBook, int dstPageNum)
+    {
+        var srcPage = srcChar.GetPage(srcBook, srcPageNum);
+        var dstPage = dstChar.GetPage(dstBook, dstPageNum);
+
+        for (int i = 0; i < MacroBinaryCodec.SlotsPerPage; i++)
+        {
+            byte[] srcBytes = srcPage.Slots[i].CloneBytes();
+            _slotActions.Add(new OverwriteSlotAction(dstPage, i, srcBytes, $"パレット複製 Slot {i}"));
+        }
+
+        Description =
+            $"パレットコピー: {srcChar.DisplayName} B{srcBook:D2}-P{srcPageNum} → {dstChar.DisplayName} B{dstBook:D2}-P{dstPageNum}";
+    }
+
+    public void Execute()
+    {
+        foreach (var action in _slotActions)
+        {
+            action.Execute();
+        }
+    }
+
+    public void Undo()
+    {
+        for (int i = _slotActions.Count - 1; i >= 0; i--)
+        {
+            _slotActions[i].Undo();
+        }
+    }
+}
 
     private (bool Confirmed, bool CopyTitle) ShowBookCopyDialog(string srcLabel, string dstLabel)
     {
@@ -672,6 +819,12 @@ public partial class MainWindow : Window
                            _panes[1].CurrentCharacter != null &&
                            !(ReferenceEquals(_panes[0].CurrentCharacter, _panes[1].CurrentCharacter) &&
                              _panes[0].CurrentBook == _panes[1].CurrentBook);
+
+        var leftPage = _panes[0].GetCurrentPage();
+        var rightPage = _panes[1].GetCurrentPage();
+        bool canPageCopy = leftPage != null && rightPage != null && !ReferenceEquals(leftPage, rightPage);
+        BtnCopyPageLeftToRight.IsEnabled = canPageCopy;
+        BtnCopyPageRightToLeft.IsEnabled = canPageCopy;
 
         BtnCopyBookLeftToRight.IsEnabled = canBookCopy;
         BtnCopyBookRightToLeft.IsEnabled = canBookCopy;

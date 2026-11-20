@@ -21,6 +21,7 @@ public static class MacroBinaryCodec
     public static readonly byte[] DefaultTtlHeader = [0x01, 0x00, 0x00, 0x00, 0x88, 0xA7, 0xC7, 0x0D];
 
     private static readonly Encoding Sjis;
+    private static readonly Encoding SjisStrict;
 
     public static AutoTranslateDictionary Dictionary { get; } = new();
 
@@ -28,6 +29,10 @@ public static class MacroBinaryCodec
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         Sjis = Encoding.GetEncoding("shift_jis");
+        SjisStrict = Encoding.GetEncoding(
+            "shift_jis",
+            EncoderFallback.ExceptionFallback,
+            DecoderFallback.ReplacementFallback);
     }
 
     public static string GetDatFileName(int bookNumber, int pageNumber)
@@ -36,35 +41,129 @@ public static class MacroBinaryCodec
         return index == 0 ? "mcr.dat" : $"mcr{index}.dat";
     }
 
-    public static string DecodeFf11Text(ReadOnlySpan<byte> raw)
+    public static string DecodeFf11Text(ReadOnlySpan<byte> raw, bool forEditing = false)
     {
-        int len = raw.IndexOf((byte)0x00);
-        if (len == 0) return string.Empty;
-        var slice = len > 0 ? raw[..len] : raw;
+        int nullIdx = raw.IndexOf((byte)0x00);
+        var slice = nullIdx >= 0 ? raw[..nullIdx] : raw;
+        if (slice.Length == 0) return string.Empty;
 
         var sb = new StringBuilder();
         int start = 0;
+
         for (int i = 0; i < slice.Length; i++)
         {
-            // 0xFD で始まり 0xFD で終わる6バイトを定型文として展開表示（元バイト列は変更しない）
             if (slice[i] == 0xFD && i + 5 < slice.Length && slice[i + 5] == 0xFD)
             {
                 if (i > start) sb.Append(Sjis.GetString(slice[start..i]));
                 uint code = BinaryPrimitives.ReadUInt32BigEndian(slice.Slice(i + 1, 4));
-                if (Dictionary.TryResolve(code, out string word))
-                {
-                    sb.Append($"【{word}】");
-                }
-                else
-                {
-                    sb.Append($"【定型文:{code:X8}】");
-                }
+                sb.Append(forEditing
+                    ? Dictionary.FormatForEditing(code)
+                    : Dictionary.FormatForDisplay(code));
                 i += 5;
                 start = i + 1;
             }
         }
-        if (start < slice.Length) sb.Append(Sjis.GetString(slice[start..]));
+
+        if (start < slice.Length)
+        {
+            sb.Append(Sjis.GetString(slice[start..]));
+        }
+
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// 編集テキスト（【単語】や【単語#XXXXXXXX】を含む）を FF11 バイナリへ変換し、実バイト数を計測する
+    /// </summary>
+    public static bool TryEncodeFf11Text(
+        string text,
+        int maxBytes,
+        out byte[] encodedBytes,
+        out int byteCount,
+        out string? errorMessage)
+    {
+        encodedBytes = [];
+        byteCount = 0;
+        errorMessage = null;
+
+        if (string.IsNullOrEmpty(text)) return true;
+
+        using var ms = new MemoryStream(maxBytes + 16);
+        int pos = 0;
+
+        try
+        {
+            while (pos < text.Length)
+            {
+                int openIdx = text.IndexOf('【', pos);
+                if (openIdx < 0)
+                {
+                    WritePlainSjis(ms, text.AsSpan(pos));
+                    break;
+                }
+
+                if (openIdx > pos)
+                {
+                    WritePlainSjis(ms, text.AsSpan(pos, openIdx - pos));
+                }
+
+                int closeIdx = text.IndexOf('】', openIdx + 1);
+                if (closeIdx < 0)
+                {
+                    // 閉じ括弧がない場合は通常テキストとして扱う
+                    WritePlainSjis(ms, text.AsSpan(openIdx));
+                    break;
+                }
+
+                string inner = text.Substring(openIdx + 1, closeIdx - openIdx - 1);
+                if (Dictionary.TryResolveCodeFromToken(inner, out uint code, out bool isAmbiguous))
+                {
+                    ms.WriteByte(0xFD);
+                    ms.WriteByte((byte)(code >> 24));
+                    ms.WriteByte((byte)(code >> 16));
+                    ms.WriteByte((byte)(code >> 8));
+                    ms.WriteByte((byte)code);
+                    ms.WriteByte(0xFD);
+                }
+                else if (isAmbiguous)
+                {
+                    errorMessage = $"「【{inner}】」は同名の定型文が複数あるため、定型文挿入から選択してください。";
+                    byteCount = (int)ms.Length;
+                    return false;
+                }
+                else
+                {
+                    // 辞書にない【...】は通常の括弧付きテキストとしてそのまま Shift_JIS 変換
+                    WritePlainSjis(ms, text.AsSpan(openIdx, closeIdx - openIdx + 1));
+                }
+
+                pos = closeIdx + 1;
+            }
+        }
+        catch (EncoderFallbackException ex)
+        {
+            errorMessage = $"FF11 (Shift_JIS) で使用できない文字が含まれています: '{ex.CharUnknown}'";
+            byteCount = (int)ms.Length;
+            return false;
+        }
+
+        encodedBytes = ms.ToArray();
+        byteCount = encodedBytes.Length;
+
+        if (byteCount > maxBytes)
+        {
+            errorMessage = $"文字数が上限を超えています ({byteCount} / {maxBytes} バイト)";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static void WritePlainSjis(MemoryStream ms, ReadOnlySpan<char> chars)
+    {
+        if (chars.IsEmpty) return;
+        byte[] bytes = SjisStrict.GetBytes(chars.ToString());
+        ms.Write(bytes, 0, bytes.Length);
     }
 
     public static MacroPage ReadPage(string characterId, string filePath, int bookNumber, int pageNumber)
