@@ -63,10 +63,10 @@ FINAL FANTASY XI（FF11）のローカルマクロファイル（`mcr*.dat` / `m
 
 ### キャラクター名の自動補完表示（任意）
 
-FF11 の `USER` フォルダ配下にある各キャラクターの英数字フォルダ（例：`USER\aedeb8\`）の中に、**`キャラクター名.txt`** という名前のテキストファイル（中身は空で問題ありません）を配置しておくと、プルダウン上で自動的に **`キャラクター名 (英数字フォルダ名)`** と表示されるようになります。
+FF11 の `USER` フォルダ配下にある各キャラクターの英数字フォルダ（例：`USER\1a2b3c\`）の中に、**`キャラクター名.txt`** という名前のテキストファイル（中身は空で問題ありません）を配置しておくと、プルダウン上で自動的に **`キャラクター名 (英数字フォルダ名)`** と表示されるようになります。
 
-* **配置例**：`C:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI\USER\aedeb8\Thunderfourth.txt`
-* **表示例**：`Thunderfourth (aedeb8)`
+* **配置例**：`C:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI\USER\1a2b3c\Hogehoge.txt`
+* **表示例**：`Hogehoge (1a2b3c)`
 
 複数キャラクター・複数アカウントのマクロを整理する際、英数字のIDだけでは見分けがつきにくいため、事前に配置しておくと識別しやすくなります。
 
