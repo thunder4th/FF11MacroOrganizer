@@ -361,3 +361,9 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# FF11 Macro Organizer 固有の除外設定
+last_folder.txt
+*.dat
+*.ttl
+dist/

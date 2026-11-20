@@ -1,0 +1,147 @@
+name: Build and Release FF11 Macro Organizer
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '2.0.0'
+        required: true
+        default: '2.0.0'
+
+permissions:
+  contents: write
+
+env:
+  PROJECT_PATH: FF11MacroOrganizer/FF11MacroOrganizer.csproj
+  APP_NAME: FF11MacroOrganizer
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Determine release version
+        id: ver
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $tag = $env:GITHUB_REF_NAME
+            $version = $tag -replace '^v', ''
+          } else {
+            $version = "${{ github.event.inputs.version }}" -replace '^v', ''
+            $tag = "v$version"
+          }
+
+          # AssemblyVersion / FileVersion 用に数値4桁 (Major.Minor.Patch.0) へ正規化
+          $numericBase = $version -replace '[-+].*$', ''
+          $parts = $numericBase.Split('.')
+          $major = if ($parts.Length -ge 1 -and $parts[0] -match '^\d+$') { $parts[0] } else { '1' }
+          $minor = if ($parts.Length -ge 2 -and $parts[1] -match '^\d+$') { $parts[1] } else { '0' }
+          $patch = if ($parts.Length -ge 3 -and $parts[2] -match '^\d+$') { $parts[2] } else { '0' }
+          $asmVersion = "$major.$minor.$patch.0"
+
+          echo "tag=$tag" >> $env:GITHUB_OUTPUT
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+          echo "asm_version=$asmVersion" >> $env:GITHUB_OUTPUT
+          echo "Building version: $version (AssemblyVersion: $asmVersion / Tag: $tag)"
+
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.PROJECT_PATH }}
+
+      - name: Publish Framework-Dependent (Lightweight)
+        shell: pwsh
+        run: |
+          dotnet publish ${{ env.PROJECT_PATH }} `
+            -c Release `
+            -r win-x64 `
+            --self-contained false `
+            -p:PublishSingleFile=true `
+            -p:DebugType=none `
+            -p:DebugSymbols=false `
+            -p:Version=${{ steps.ver.outputs.version }} `
+            -p:AssemblyVersion=${{ steps.ver.outputs.asm_version }} `
+            -p:FileVersion=${{ steps.ver.outputs.asm_version }} `
+            -o out/framework-dependent
+
+      - name: Publish Self-Contained (Standalone)
+        shell: pwsh
+        run: |
+          dotnet publish ${{ env.PROJECT_PATH }} `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:DebugType=none `
+            -p:DebugSymbols=false `
+            -p:Version=${{ steps.ver.outputs.version }} `
+            -p:AssemblyVersion=${{ steps.ver.outputs.asm_version }} `
+            -p:FileVersion=${{ steps.ver.outputs.asm_version }} `
+            -o out/self-contained
+
+      - name: Package ZIP archives and compute SHA-256 checksums
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $ver = "${{ steps.ver.outputs.tag }}"
+
+          # README.md / LICENSE がリポジトリ直下にあれば各ZIPに同梱
+          foreach ($dir in @("out/framework-dependent", "out/self-contained")) {
+            if (Test-Path "README.md") { Copy-Item "README.md" $dir }
+            if (Test-Path "LICENSE")   { Copy-Item "LICENSE"   $dir }
+          }
+
+          $zipFd = "dist/${{ env.APP_NAME }}_${ver}_win-x64_framework-dependent.zip"
+          $zipSc = "dist/${{ env.APP_NAME }}_${ver}_win-x64_self-contained.zip"
+
+          Compress-Archive -Path "out/framework-dependent/*" -DestinationPath $zipFd -Force
+          Compress-Archive -Path "out/self-contained/*"      -DestinationPath $zipSc -Force
+
+          # 電子署名の代替として SHA-256 チェックサムを自動生成
+          $hashes = @()
+          foreach ($file in @($zipSc, $zipFd)) {
+            $h = (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLower()
+            $name = Split-Path -Leaf $file
+            $hashes += "$h  $name"
+          }
+          $hashes | Set-Content -Path "dist/SHA256SUMS.txt" -Encoding UTF8
+
+          $body = @(
+            "### 配布ファイルの選び方"
+            "- **self-contained.zip（推奨・ランタイム同梱版）**: .NET 10 未導入の PC でもそのまま起動できます。"
+            "- **framework-dependent.zip（軽量版）**: .NET 10 Desktop Runtime (x64) 導入済み環境向けです。"
+            ""
+            "### SHA-256 チェックサム"
+            '```text'
+          ) + $hashes + @(
+            '```'
+          )
+          $body -join "`n" | Set-Content -Path "dist/release_notes.md" -Encoding UTF8
+
+      - name: Upload Build Artifacts (always available for verification)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-${{ steps.ver.outputs.tag }}
+          path: dist/*
+
+      - name: Create GitHub Release (on tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "${{ env.APP_NAME }} ${{ steps.ver.outputs.tag }}"
+          body_path: dist/release_notes.md
+          generate_release_notes: true
+          files: |
+            dist/*.zip
+            dist/SHA256SUMS.txt
