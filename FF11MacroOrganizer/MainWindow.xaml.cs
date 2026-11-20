@@ -196,6 +196,9 @@ public partial class MainWindow : Window
     {
         var menu = new ContextMenu();
 
+        var miEdit = new MenuItem { Header = "編集... (ダブルクリック / F2)", FontWeight = FontWeights.Bold };
+        miEdit.Click += (_, _) => OpenSlotEditor(paneIndex, slotIndex);
+
         var miCopy = new MenuItem { Header = "コピー" };
         miCopy.Click += (_, _) => CopySlotToClipboard(paneIndex, slotIndex);
 
@@ -208,18 +211,20 @@ public partial class MainWindow : Window
         menu.Opened += (_, _) =>
         {
             bool hasPage = _panes[paneIndex].GetCurrentPage() != null;
+            miEdit.IsEnabled = hasPage;
             miCopy.IsEnabled = hasPage;
             miPaste.IsEnabled = hasPage && _slotClipboard != null;
             miClear.IsEnabled = hasPage;
         };
 
+        menu.Items.Add(miEdit);
+        menu.Items.Add(new Separator());
         menu.Items.Add(miCopy);
         menu.Items.Add(miPaste);
         menu.Items.Add(new Separator());
         menu.Items.Add(miClear);
         return menu;
     }
-
     // ---------- フォルダ読み込み ----------
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -444,19 +449,26 @@ public partial class MainWindow : Window
     }
 
     // ---------- ドラッグ＆ドロップ処理 ----------
-
     private void Slot_PreviewMouseLeftButtonDown(int paneIndex, int slotIndex, MouseButtonEventArgs e)
     {
         if (_panes[paneIndex].GetCurrentPage() == null) return;
 
-        _dragStartPoint = e.GetPosition(this);
-        _dragOrigin = (paneIndex, slotIndex);
         _selectedSlot = (paneIndex, slotIndex);
         RefreshPaneVisuals(_panes[0]);
         RefreshPaneVisuals(_panes[1]);
         ShowPreview(paneIndex, slotIndex);
-    }
 
+        if (e.ClickCount == 2)
+        {
+            _dragOrigin = null;
+            e.Handled = true;
+            OpenSlotEditor(paneIndex, slotIndex);
+            return;
+        }
+
+        _dragStartPoint = e.GetPosition(this);
+        _dragOrigin = (paneIndex, slotIndex);
+    }
     private void Slot_MouseMove(int paneIndex, int slotIndex, MouseEventArgs e)
     {
         if (e.LeftButton != MouseButtonState.Pressed || _dragOrigin != (paneIndex, slotIndex)) return;
@@ -578,8 +590,36 @@ public partial class MainWindow : Window
         ShowPreview(paneIndex, slotIndex);
     }
 
-    // ---------- パレット（ページ）単位コピー ----------
+    private void OpenSlotEditor(int paneIndex, int slotIndex)
+    {
+        var pane = _panes[paneIndex];
+        var page = pane.GetCurrentPage();
+        if (page == null || pane.CurrentCharacter == null) return;
 
+        var slot = page.Slots[slotIndex];
+        string bookTitle = pane.CurrentCharacter.GetBookTitle(pane.CurrentBook);
+        string headerLabel =
+            $"[{pane.Label}] {pane.CurrentCharacter.DisplayName} / Book {pane.CurrentBook:D2} ({bookTitle}) / Page {pane.CurrentPageNumber} / {MacroSlot.GetKeyLabel(slotIndex)}";
+
+        byte[] beforeBytes = slot.CloneBytes();
+        var dlg = new MacroEditDialog(headerLabel, beforeBytes) { Owner = this };
+        if (dlg.ShowDialog() != true || dlg.ResultSlotBytes == null) return;
+
+        // 1バイトも変わっていなければ履歴に積まない
+        if (beforeBytes.AsSpan().SequenceEqual(dlg.ResultSlotBytes))
+        {
+            return;
+        }
+
+        string desc = $"編集: {pane.CurrentCharacter.DisplayName} B{pane.CurrentBook:D2}-P{pane.CurrentPageNumber} {MacroSlot.GetKeyLabel(slotIndex)}";
+        _undoManager.Execute(new OverwriteSlotAction(page, slotIndex, dlg.ResultSlotBytes, desc));
+        _selectedSlot = (paneIndex, slotIndex);
+        RefreshAllUi();
+        ShowPreview(paneIndex, slotIndex);
+        TxtStatusMessage.Text = $"{desc} を反映しました（未保存状態・Ctrl+Zで取り消し可能）";
+    }
+
+    // ---------- パレット（ページ）単位コピー ----------
     private void BtnCopyPageLeftToRight_Click(object sender, RoutedEventArgs e) => ExecutePageCopy(_panes[0], _panes[1]);
     private void BtnCopyPageRightToLeft_Click(object sender, RoutedEventArgs e) => ExecutePageCopy(_panes[1], _panes[0]);
 
@@ -962,6 +1002,12 @@ public sealed class CopyPageAction : IUndoAction
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (Keyboard.Modifiers == ModifierKeys.None && e.Key == Key.F2 && _selectedSlot.HasValue)
+        {
+            OpenSlotEditor(_selectedSlot.Value.PaneIndex, _selectedSlot.Value.SlotIndex);
+            e.Handled = true;
+            return;
+        }
         if (Keyboard.Modifiers != ModifierKeys.Control) return;
 
         if (e.Key == Key.Z && BtnUndo.IsEnabled)

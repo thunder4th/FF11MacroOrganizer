@@ -166,6 +166,90 @@ public static class MacroBinaryCodec
         ms.Write(bytes, 0, bytes.Length);
     }
 
+    /// <summary>
+    /// 380バイトのスロットデータから編集用のタイトルと本文6行を取り出す（同名衝突コードは #XXXXXXXX 付き）
+    /// </summary>
+    public static (string Title, string[] Lines) DecodeSlotForEditing(ReadOnlySpan<byte> slotBytes)
+    {
+        var lines = new string[6];
+        if (slotBytes.Length < SlotSize)
+        {
+            for (int i = 0; i < 6; i++) lines[i] = string.Empty;
+            return (string.Empty, lines);
+        }
+
+        for (int i = 0; i < 6; i++)
+        {
+            lines[i] = DecodeFf11Text(slotBytes.Slice(4 + i * 61, 61), forEditing: true);
+        }
+
+        string title = DecodeFf11Text(slotBytes.Slice(370, 10), forEditing: true);
+        return (title, lines);
+    }
+
+    /// <summary>
+    /// 編集後のタイトルと本文6行を 380バイトの FF11 スロットバイナリへ組み立てる
+    /// </summary>
+    public static bool TryEncodeSlot(
+        ReadOnlySpan<byte> originalSlotBytes,
+        string title,
+        IReadOnlyList<string> lines,
+        out byte[] newSlotBytes,
+        out string? errorMessage)
+    {
+        newSlotBytes = new byte[SlotSize];
+        errorMessage = null;
+
+        if (!TryEncodeFf11Text(title, 8, out byte[] titleBytes, out _, out string? titleErr))
+        {
+            errorMessage = $"タイトル: {titleErr}";
+            return false;
+        }
+
+        var lineBytesList = new byte[6][];
+        bool hasAnyContent = titleBytes.Length > 0;
+
+        for (int i = 0; i < 6; i++)
+        {
+            string lineText = i < lines.Count ? lines[i] : string.Empty;
+            if (!TryEncodeFf11Text(lineText, 60, out byte[] encoded, out _, out string? lineErr))
+            {
+                errorMessage = $"{i + 1}行目: {lineErr}";
+                return false;
+            }
+            lineBytesList[i] = encoded;
+            if (encoded.Length > 0) hasAnyContent = true;
+        }
+
+        // タイトル・本文とも完全に空の場合は全ゼロ（空スロット）として返す
+        if (!hasAnyContent)
+        {
+            return true;
+        }
+
+        // 先頭4バイトは元スロットの値を保持
+        if (originalSlotBytes.Length >= 4)
+        {
+            originalSlotBytes[..4].CopyTo(newSlotBytes.AsSpan(0, 4));
+        }
+
+        for (int i = 0; i < 6; i++)
+        {
+            byte[] encoded = lineBytesList[i];
+            if (encoded.Length > 0)
+            {
+                Buffer.BlockCopy(encoded, 0, newSlotBytes, 4 + i * 61, encoded.Length);
+            }
+        }
+
+        if (titleBytes.Length > 0)
+        {
+            Buffer.BlockCopy(titleBytes, 0, newSlotBytes, 370, titleBytes.Length);
+        }
+
+        return true;
+    }
+
     public static MacroPage ReadPage(string characterId, string filePath, int bookNumber, int pageNumber)
     {
         var page = new MacroPage(characterId, filePath, bookNumber, pageNumber);
