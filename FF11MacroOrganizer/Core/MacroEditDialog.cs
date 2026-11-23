@@ -10,6 +10,13 @@ public sealed class MacroEditDialog : Window
 {
     private const int MaxTitleBytes = 8;
     private const int MaxLineBytes = 60;
+    private const double BaseContentWidth = 984.0;
+    private const double BaseContentHeight = 521.0;
+
+    // セッション中は前回閉じたサイズ・最大化状態を記憶して再利用する
+    private static double _lastWidth = 1000;
+    private static double _lastHeight = 560;
+    private static WindowState _lastWindowState = WindowState.Normal;
 
     private static readonly SolidColorBrush BrushCountOk = new(Color.FromRgb(75, 85, 99));
     private static readonly SolidColorBrush BrushCountError = new(Color.FromRgb(185, 28, 28));
@@ -18,6 +25,7 @@ public sealed class MacroEditDialog : Window
     private static readonly SolidColorBrush BrushAmbiguousFg = new(Color.FromRgb(180, 83, 9));
 
     private readonly byte[] _originalBytes;
+    private readonly ScaleTransform _rootScale = new(1.0, 1.0);
     private readonly TextBox _txtTitle;
     private readonly TextBlock _lblTitleCount;
     private readonly TextBox[] _txtLines = new TextBox[6];
@@ -41,14 +49,20 @@ public sealed class MacroEditDialog : Window
         _originalBytes = (byte[])originalSlotBytes.Clone();
 
         Title = "マクロ編集";
-        Width = 1000;
-        Height = 560;
+        Width = _lastWidth;
+        Height = _lastHeight;
         MinWidth = 840;
         MinHeight = 480;
+        ResizeMode = ResizeMode.CanResize;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = new SolidColorBrush(Color.FromRgb(249, 250, 251));
 
-        var rootGrid = new Grid { Margin = new Thickness(14) };
+        var outerGrid = new Grid();
+        var rootGrid = new Grid
+        {
+            Margin = new Thickness(14),
+            LayoutTransform = _rootScale
+        };
         rootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.15, GridUnitType.Star) });
         rootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
         rootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.0, GridUnitType.Star) });
@@ -234,6 +248,21 @@ public sealed class MacroEditDialog : Window
         };
         btnClearAll.Click += (_, _) =>
         {
+            bool hasAnyText = !string.IsNullOrEmpty(_txtTitle.Text) ||
+                              _txtLines.Any(tb => !string.IsNullOrEmpty(tb.Text));
+            if (!hasAnyText)
+            {
+                _txtLines[0].Focus();
+                return;
+            }
+
+            var confirm = MessageBox.Show(
+                "タイトルと本文6行の入力内容をすべてクリアしますか？",
+                "すべてクリアの確認",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+            if (confirm != MessageBoxResult.Yes) return;
+
             _txtTitle.Text = string.Empty;
             foreach (var tb in _txtLines) tb.Text = string.Empty;
             _txtLines[0].Focus();
@@ -414,7 +443,9 @@ public sealed class MacroEditDialog : Window
         Grid.SetColumn(rightCard, 2);
         rootGrid.Children.Add(rightCard);
 
-        Content = rootGrid;
+        outerGrid.Children.Add(rootGrid);
+        outerGrid.SizeChanged += (_, e) => UpdateScale(e.NewSize.Width, e.NewSize.Height);
+        Content = outerGrid;
 
         // Ctrl+Space で検索ボックスへジャンプ、Ctrl+Enter で適用
         PreviewKeyDown += (s, e) =>
@@ -448,9 +479,44 @@ public sealed class MacroEditDialog : Window
 
         Loaded += (_, _) =>
         {
+            if (_lastWindowState == WindowState.Maximized)
+            {
+                WindowState = WindowState.Maximized;
+            }
+            UpdateScale(outerGrid.ActualWidth, outerGrid.ActualHeight);
             _txtLines[0].Focus();
             _txtLines[0].CaretIndex = _txtLines[0].Text.Length;
         };
+
+        Closing += (_, _) =>
+        {
+            _lastWindowState = WindowState;
+            if (WindowState == WindowState.Normal)
+            {
+                _lastWidth = Width;
+                _lastHeight = Height;
+            }
+            else if (RestoreBounds.Width > 0 && RestoreBounds.Height > 0)
+            {
+                _lastWidth = RestoreBounds.Width;
+                _lastHeight = RestoreBounds.Height;
+            }
+        };
+    }
+
+    private void UpdateScale(double contentWidth, double contentHeight)
+    {
+        if (contentWidth <= 0 || contentHeight <= 0) return;
+
+        double scaleX = contentWidth / BaseContentWidth;
+        double scaleY = contentHeight / BaseContentHeight;
+        double scale = Math.Clamp(Math.Min(scaleX, scaleY), 0.85, 2.2);
+
+        if (Math.Abs(_rootScale.ScaleX - scale) > 0.01)
+        {
+            _rootScale.ScaleX = scale;
+            _rootScale.ScaleY = scale;
+        }
     }
 
     private void ValidateAllInputs()

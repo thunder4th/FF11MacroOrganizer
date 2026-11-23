@@ -4,6 +4,8 @@ using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -24,16 +26,55 @@ public partial class MainWindow : Window
         public required Border[] SlotBorders { get; init; }
         public required TextBlock[] SlotTitleTexts { get; init; }
         public required TextBlock[] SlotKeyTexts { get; init; }
+        public required Border PreviewBorder { get; init; }
+        public required TextBlock TxtPreviewHeader { get; init; }
+        public required TextBox TxtPreviewBody { get; init; }
+        public required Button BtnEditSlot { get; init; }
         public bool IsUpdating { get; set; }
 
         public CharacterMacroStore? CurrentCharacter { get; set; }
         public int CurrentBook { get; set; } = 1;
         public int CurrentPageNumber { get; set; } = 1;
+        public int? SelectedSlotIndex { get; set; }
 
         public MacroPage? GetCurrentPage() => CurrentCharacter?.GetPage(CurrentBook, CurrentPageNumber);
     }
 
     private sealed record SlotDragPayload(int PaneIndex, MacroPage Page, int SlotIndex);
+
+    private sealed class DragAdorner : Adorner
+    {
+        private readonly VisualBrush _brush;
+        private readonly Size _size;
+        private readonly Point _offset;
+        private Point _location;
+
+        public DragAdorner(UIElement adornedElement, UIElement draggedElement, Point offset, Point initialLocation)
+            : base(adornedElement)
+        {
+            _brush = new VisualBrush(draggedElement) { Opacity = 0.65 };
+            _size = draggedElement.RenderSize;
+            _offset = offset;
+            _location = initialLocation;
+            IsHitTestVisible = false;
+        }
+
+        public void UpdatePosition(Point location)
+        {
+            _location = location;
+            InvalidateVisual();
+        }
+
+        protected override void OnRender(DrawingContext drawingContext)
+        {
+            var rect = new Rect(
+                _location.X - _offset.X,
+                _location.Y - _offset.Y,
+                _size.Width,
+                _size.Height);
+            drawingContext.DrawRectangle(_brush, null, rect);
+        }
+    }
 
     private readonly MacroRepository _repo = new();
     private readonly UndoManager _undoManager = new();
@@ -42,34 +83,52 @@ public partial class MainWindow : Window
 
     private byte[]? _slotClipboard;
     private Point _dragStartPoint;
+    private Point _dragElementOffset;
     private (int PaneIndex, int SlotIndex)? _dragOrigin;
-    private (int PaneIndex, int SlotIndex)? _selectedSlot;
+    private DragAdorner? _dragAdorner;
+    private int _activePaneIndex;
     private bool _isPolRunning;
+    private bool _isSinglePane;
+    private double _twoPaneWindowWidth = 1320;
     private const string DefaultFf11UserDir = @"C:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI\USER";
     private static readonly string LastFolderSettingPath = Path.Combine(AppContext.BaseDirectory, "last_folder.txt");
+    private static readonly string PaneModeSettingPath = Path.Combine(AppContext.BaseDirectory, "pane_mode.txt");
 
     // 配色定義
     private static readonly SolidColorBrush BrushEmptyBg = new(Color.FromRgb(249, 250, 251));
     private static readonly SolidColorBrush BrushFilledBg = new(Color.FromRgb(239, 246, 255));
-    private static readonly SolidColorBrush BrushSelectedBg = new(Color.FromRgb(37, 99, 235));
+    private static readonly SolidColorBrush BrushActiveSelectedBg = new(Color.FromRgb(37, 99, 235));
+    private static readonly SolidColorBrush BrushActiveSelectedBorder = new(Color.FromRgb(30, 58, 138));
+    private static readonly SolidColorBrush BrushInactiveSelectedBg = new(Color.FromRgb(226, 232, 240));
+    private static readonly SolidColorBrush BrushInactiveSelectedBorder = new(Color.FromRgb(100, 116, 139));
     private static readonly SolidColorBrush BrushNormalBorder = new(Color.FromRgb(209, 213, 219));
     private static readonly SolidColorBrush BrushFilledBorder = new(Color.FromRgb(147, 197, 253));
-    private static readonly SolidColorBrush BrushSelectedBorder = new(Color.FromRgb(30, 58, 138));
     private static readonly SolidColorBrush BrushNormalTitleFg = new(Color.FromRgb(17, 24, 39));
     private static readonly SolidColorBrush BrushNormalKeyFg = new(Color.FromRgb(107, 114, 128));
+    private static readonly SolidColorBrush BrushInactiveSelectedKeyFg = new(Color.FromRgb(71, 85, 105));
     private static readonly SolidColorBrush BrushSelectedTitleFg = Brushes.White;
     private static readonly SolidColorBrush BrushSelectedKeyFg = new(Color.FromRgb(219, 234, 254));
     private static readonly SolidColorBrush BrushDropSwapBg = new(Color.FromRgb(191, 219, 254));
     private static readonly SolidColorBrush BrushDropSwapBorder = new(Color.FromRgb(37, 99, 235));
     private static readonly SolidColorBrush BrushDropCopyBg = new(Color.FromRgb(254, 215, 170));
     private static readonly SolidColorBrush BrushDropCopyBorder = new(Color.FromRgb(234, 88, 12));
+    private static readonly SolidColorBrush BrushActivePreviewBorder = new(Color.FromRgb(37, 99, 235));
+    private static readonly SolidColorBrush BrushInactivePreviewHeaderFg = new(Color.FromRgb(100, 116, 139));
 
     public MainWindow()
     {
         InitializeComponent();
 
-        _panes[0] = InitializePane(0, CmbLeftChar, CmbLeftBook, CmbLeftPage, TxtLeftDirty, GridLeftSlots);
-        _panes[1] = InitializePane(1, CmbRightChar, CmbRightBook, CmbRightPage, TxtRightDirty, GridRightSlots);
+        // スロット以外の領域ではドロップ不可カーソルにする
+        RootGrid.DragOver += RootGrid_DragOver;
+
+        _panes[0] = InitializePane(
+            0, CmbLeftChar, CmbLeftBook, CmbLeftPage, TxtLeftDirty, GridLeftSlots,
+            LeftPreviewBorder, TxtLeftPreviewHeader, TxtLeftPreviewBody, BtnEditLeftSlot);
+
+        _panes[1] = InitializePane(
+            1, CmbRightChar, CmbRightBook, CmbRightPage, TxtRightDirty, GridRightSlots,
+            RightPreviewBorder, TxtRightPreviewHeader, TxtRightPreviewBody, BtnEditRightSlot);
 
         // 両ペインの生成が完了してからページの初期選択を行う
         foreach (var pane in _panes)
@@ -84,6 +143,7 @@ public partial class MainWindow : Window
         _polTimer.Start();
         UpdatePolStatus();
         MacroBinaryCodec.Dictionary.TryLoadFromHintPath(null);
+        ApplyPaneMode(LoadPaneMode(), isStartup: true);
         Loaded += MainWindow_Loaded;
     }
 
@@ -93,7 +153,11 @@ public partial class MainWindow : Window
         ComboBox cmbBook,
         ComboBox cmbPage,
         TextBlock txtDirty,
-        System.Windows.Controls.Primitives.UniformGrid grid)
+        UniformGrid grid,
+        Border previewBorder,
+        TextBlock txtPreviewHeader,
+        TextBox txtPreviewBody,
+        Button btnEditSlot)
     {
         var borders = new Border[MacroBinaryCodec.SlotsPerPage];
         var keyTexts = new TextBlock[MacroBinaryCodec.SlotsPerPage];
@@ -155,14 +219,8 @@ public partial class MainWindow : Window
 
             border.PreviewMouseLeftButtonDown += (s, e) => Slot_PreviewMouseLeftButtonDown(paneIndex, slotIndex, e);
             border.MouseMove += (s, e) => Slot_MouseMove(paneIndex, slotIndex, e);
-            border.MouseEnter += (_, _) => ShowPreview(paneIndex, slotIndex);
-            border.MouseLeave += (_, _) =>
-            {
-                if (_selectedSlot.HasValue)
-                {
-                    ShowPreview(_selectedSlot.Value.PaneIndex, _selectedSlot.Value.SlotIndex);
-                }
-            };
+            border.MouseEnter += (_, _) => ShowPreview(paneIndex, slotIndex, isHover: true);
+            border.MouseLeave += (_, _) => RefreshPanePreview(paneIndex);
             border.DragOver += (s, e) => Slot_DragOver(paneIndex, slotIndex, e);
             border.DragLeave += (_, _) => ResetSlotVisual(paneIndex, slotIndex);
             border.Drop += (s, e) => Slot_Drop(paneIndex, slotIndex, e);
@@ -188,7 +246,11 @@ public partial class MainWindow : Window
             TxtDirty = txtDirty,
             SlotBorders = borders,
             SlotKeyTexts = keyTexts,
-            SlotTitleTexts = titleTexts
+            SlotTitleTexts = titleTexts,
+            PreviewBorder = previewBorder,
+            TxtPreviewHeader = txtPreviewHeader,
+            TxtPreviewBody = txtPreviewBody,
+            BtnEditSlot = btnEditSlot
         };
     }
 
@@ -205,7 +267,7 @@ public partial class MainWindow : Window
         var miPaste = new MenuItem { Header = "貼り付け（上書き）" };
         miPaste.Click += (_, _) => PasteSlotFromClipboard(paneIndex, slotIndex);
 
-        var miClear = new MenuItem { Header = "クリア（空にする）" };
+        var miClear = new MenuItem { Header = "クリア（空にする） (Delete)" };
         miClear.Click += (_, _) => ClearSlot(paneIndex, slotIndex);
 
         menu.Opened += (_, _) =>
@@ -225,14 +287,13 @@ public partial class MainWindow : Window
         menu.Items.Add(miClear);
         return menu;
     }
+
     // ---------- フォルダ読み込み ----------
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        // 1. 前回開いたフォルダがあれば最優先で読み込む
         string? initialDir = LoadLastFolderPath();
 
-        // 2. なければ既定の FF11 USER フォルダを使う
         if (string.IsNullOrEmpty(initialDir) || !Directory.Exists(initialDir))
         {
             initialDir = Directory.Exists(DefaultFf11UserDir) ? DefaultFf11UserDir : null;
@@ -283,7 +344,9 @@ public partial class MainWindow : Window
             _repo.LoadFolder(folderPath);
             MacroBinaryCodec.Dictionary.TryLoadFromHintPath(folderPath);
             _undoManager.Clear();
-            _selectedSlot = null;
+            _panes[0].SelectedSlotIndex = null;
+            _panes[1].SelectedSlotIndex = null;
+            _activePaneIndex = 0;
 
             if (_repo.Characters.Count == 0)
             {
@@ -403,8 +466,105 @@ public partial class MainWindow : Window
         }
     }
 
-    // ---------- セレクタ変更イベント ----------
+    // ---------- 1ペイン / 2ペイン モード切替 ----------
 
+    private void RbSinglePane_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isSinglePane) return;
+        ApplyPaneMode(singlePane: true, isStartup: false);
+        SavePaneMode(true);
+    }
+
+    private void RbDualPane_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isSinglePane) return;
+        ApplyPaneMode(singlePane: false, isStartup: false);
+        SavePaneMode(false);
+    }
+
+    private void ApplyPaneMode(bool singlePane, bool isStartup)
+    {
+        _isSinglePane = singlePane;
+        RbSinglePane.IsChecked = singlePane;
+        RbDualPane.IsChecked = !singlePane;
+
+        if (singlePane)
+        {
+            if (!isStartup && WindowState == WindowState.Normal)
+            {
+                _twoPaneWindowWidth = Width;
+            }
+
+            CenterCopyPanel.Visibility = Visibility.Collapsed;
+            RightPaneBorder.Visibility = Visibility.Collapsed;
+            RightPreviewBorder.Visibility = Visibility.Collapsed;
+
+            ColCenter.Width = new GridLength(0);
+            ColRight.Width = new GridLength(0);
+            ColPreviewGap.Width = new GridLength(0);
+            ColPreviewRight.Width = new GridLength(0);
+
+            TxtLeftPaneTitle.Text = "マクロパレット";
+            _activePaneIndex = 0;
+
+            MinWidth = 700;
+            if (WindowState == WindowState.Normal)
+            {
+                Width = Math.Max(760, Math.Round(_twoPaneWindowWidth * 0.56));
+            }
+        }
+        else
+        {
+            CenterCopyPanel.Visibility = Visibility.Visible;
+            RightPaneBorder.Visibility = Visibility.Visible;
+            RightPreviewBorder.Visibility = Visibility.Visible;
+
+            ColCenter.Width = new GridLength(122);
+            ColRight.Width = new GridLength(1, GridUnitType.Star);
+            ColPreviewGap.Width = new GridLength(10);
+            ColPreviewRight.Width = new GridLength(1, GridUnitType.Star);
+
+            TxtLeftPaneTitle.Text = "左パレット";
+
+            MinWidth = 1080;
+            if (!isStartup && WindowState == WindowState.Normal)
+            {
+                Width = Math.Max(1080, _twoPaneWindowWidth);
+            }
+        }
+
+        if (!isStartup)
+        {
+            RefreshAllUi();
+        }
+    }
+
+    private static bool LoadPaneMode()
+    {
+        try
+        {
+            if (!File.Exists(PaneModeSettingPath)) return false;
+            return string.Equals(File.ReadAllText(PaneModeSettingPath).Trim(), "single", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void SavePaneMode(bool isSinglePane)
+    {
+        try
+        {
+            File.WriteAllText(PaneModeSettingPath, isSinglePane ? "single" : "dual");
+        }
+        catch
+        {
+            // 設定ファイルの保存失敗は無視して動作を継続
+        }
+    }
+
+    // ---------- セレクタ変更イベント ----------
     private void LeftChar_SelectionChanged(object sender, SelectionChangedEventArgs e) => OnCharChanged(_panes[0]);
     private void RightChar_SelectionChanged(object sender, SelectionChangedEventArgs e) => OnCharChanged(_panes[1]);
 
@@ -448,15 +608,23 @@ public partial class MainWindow : Window
         pane.CmbPage.SelectedIndex = next - 1;
     }
 
-    // ---------- ドラッグ＆ドロップ処理 ----------
+    // ---------- 選択管理＆ドラッグ＆ドロップ処理 ----------
+
+    private void SelectSlot(int paneIndex, int slotIndex)
+    {
+        _activePaneIndex = paneIndex;
+        _panes[paneIndex].SelectedSlotIndex = slotIndex;
+        RefreshPaneVisuals(_panes[0]);
+        RefreshPaneVisuals(_panes[1]);
+        RefreshPanePreview(0);
+        RefreshPanePreview(1);
+    }
+
     private void Slot_PreviewMouseLeftButtonDown(int paneIndex, int slotIndex, MouseButtonEventArgs e)
     {
         if (_panes[paneIndex].GetCurrentPage() == null) return;
 
-        _selectedSlot = (paneIndex, slotIndex);
-        RefreshPaneVisuals(_panes[0]);
-        RefreshPaneVisuals(_panes[1]);
-        ShowPreview(paneIndex, slotIndex);
+        SelectSlot(paneIndex, slotIndex);
 
         if (e.ClickCount == 2)
         {
@@ -467,8 +635,10 @@ public partial class MainWindow : Window
         }
 
         _dragStartPoint = e.GetPosition(this);
+        _dragElementOffset = e.GetPosition(_panes[paneIndex].SlotBorders[slotIndex]);
         _dragOrigin = (paneIndex, slotIndex);
     }
+
     private void Slot_MouseMove(int paneIndex, int slotIndex, MouseEventArgs e)
     {
         if (e.LeftButton != MouseButtonState.Pressed || _dragOrigin != (paneIndex, slotIndex)) return;
@@ -483,11 +653,47 @@ public partial class MainWindow : Window
         var page = _panes[paneIndex].GetCurrentPage();
         if (page == null) return;
 
+        var dragBorder = _panes[paneIndex].SlotBorders[slotIndex];
         var payload = new SlotDragPayload(paneIndex, page, slotIndex);
         var data = new DataObject(typeof(SlotDragPayload), payload);
         _dragOrigin = null;
 
-        DragDrop.DoDragDrop(_panes[paneIndex].SlotBorders[slotIndex], data, DragDropEffects.Move | DragDropEffects.Copy);
+        var adornerLayer = AdornerLayer.GetAdornerLayer(RootGrid);
+        if (adornerLayer != null)
+        {
+            _dragAdorner = new DragAdorner(RootGrid, dragBorder, _dragElementOffset, e.GetPosition(RootGrid));
+            adornerLayer.Add(_dragAdorner);
+        }
+
+        dragBorder.Opacity = 0.35;
+        try
+        {
+            DragDrop.DoDragDrop(dragBorder, data, DragDropEffects.Move | DragDropEffects.Copy);
+        }
+        finally
+        {
+            dragBorder.Opacity = 1.0;
+            if (adornerLayer != null && _dragAdorner != null)
+            {
+                adornerLayer.Remove(_dragAdorner);
+                _dragAdorner = null;
+            }
+        }
+    }
+
+    private void RootGrid_PreviewDragOver(object sender, DragEventArgs e)
+    {
+        if (_dragAdorner != null)
+        {
+            _dragAdorner.UpdatePosition(e.GetPosition(RootGrid));
+        }
+    }
+
+    private void RootGrid_DragOver(object sender, DragEventArgs e)
+    {
+        // スロット上で処理されなかったドラッグ位置はドロップ不可とする
+        e.Effects = DragDropEffects.None;
+        e.Handled = true;
     }
 
     private void Slot_DragOver(int targetPaneIndex, int targetSlotIndex, DragEventArgs e)
@@ -549,13 +755,31 @@ public partial class MainWindow : Window
             TxtStatusMessage.Text = action.Description;
         }
 
-        _selectedSlot = (targetPaneIndex, targetSlotIndex);
+        _activePaneIndex = targetPaneIndex;
+        _panes[targetPaneIndex].SelectedSlotIndex = targetSlotIndex;
         RefreshAllUi();
-        ShowPreview(targetPaneIndex, targetSlotIndex);
         e.Handled = true;
     }
 
-    // ---------- 右クリック操作 ----------
+    // ---------- 右クリック / 編集ボタン操作 ----------
+
+    private void BtnEditLeftSlot_Click(object sender, RoutedEventArgs e)
+    {
+        if (_panes[0].SelectedSlotIndex is int slotIndex)
+        {
+            _activePaneIndex = 0;
+            OpenSlotEditor(0, slotIndex);
+        }
+    }
+
+    private void BtnEditRightSlot_Click(object sender, RoutedEventArgs e)
+    {
+        if (_panes[1].SelectedSlotIndex is int slotIndex)
+        {
+            _activePaneIndex = 1;
+            OpenSlotEditor(1, slotIndex);
+        }
+    }
 
     private void CopySlotToClipboard(int paneIndex, int slotIndex)
     {
@@ -572,9 +796,10 @@ public partial class MainWindow : Window
 
         string desc = $"貼り付け: {MacroSlot.GetKeyLabel(slotIndex)}";
         _undoManager.Execute(new OverwriteSlotAction(page, slotIndex, _slotClipboard, desc));
+        _activePaneIndex = paneIndex;
+        _panes[paneIndex].SelectedSlotIndex = slotIndex;
         TxtStatusMessage.Text = desc;
         RefreshAllUi();
-        ShowPreview(paneIndex, slotIndex);
     }
 
     private void ClearSlot(int paneIndex, int slotIndex)
@@ -585,9 +810,10 @@ public partial class MainWindow : Window
         var empty = new byte[MacroBinaryCodec.SlotSize];
         string desc = $"クリア: {MacroSlot.GetKeyLabel(slotIndex)}";
         _undoManager.Execute(new OverwriteSlotAction(page, slotIndex, empty, desc));
-        TxtStatusMessage.Text = desc;
+        _activePaneIndex = paneIndex;
+        _panes[paneIndex].SelectedSlotIndex = slotIndex;
+        TxtStatusMessage.Text = $"{desc}（Ctrl+Zで元に戻せます）";
         RefreshAllUi();
-        ShowPreview(paneIndex, slotIndex);
     }
 
     private void OpenSlotEditor(int paneIndex, int slotIndex)
@@ -605,7 +831,6 @@ public partial class MainWindow : Window
         var dlg = new MacroEditDialog(headerLabel, beforeBytes) { Owner = this };
         if (dlg.ShowDialog() != true || dlg.ResultSlotBytes == null) return;
 
-        // 1バイトも変わっていなければ履歴に積まない
         if (beforeBytes.AsSpan().SequenceEqual(dlg.ResultSlotBytes))
         {
             return;
@@ -613,13 +838,14 @@ public partial class MainWindow : Window
 
         string desc = $"編集: {pane.CurrentCharacter.DisplayName} B{pane.CurrentBook:D2}-P{pane.CurrentPageNumber} {MacroSlot.GetKeyLabel(slotIndex)}";
         _undoManager.Execute(new OverwriteSlotAction(page, slotIndex, dlg.ResultSlotBytes, desc));
-        _selectedSlot = (paneIndex, slotIndex);
+        _activePaneIndex = paneIndex;
+        pane.SelectedSlotIndex = slotIndex;
         RefreshAllUi();
-        ShowPreview(paneIndex, slotIndex);
         TxtStatusMessage.Text = $"{desc} を反映しました（未保存状態・Ctrl+Zで取り消し可能）";
     }
 
     // ---------- パレット（ページ）単位コピー ----------
+
     private void BtnCopyPageLeftToRight_Click(object sender, RoutedEventArgs e) => ExecutePageCopy(_panes[0], _panes[1]);
     private void BtnCopyPageRightToLeft_Click(object sender, RoutedEventArgs e) => ExecutePageCopy(_panes[1], _panes[0]);
 
@@ -676,52 +902,51 @@ public partial class MainWindow : Window
 
         _undoManager.Execute(action);
 
-        // ブック名変更を両ペインのコンボボックスへ反映
         RefreshBookComboBox(_panes[0]);
         RefreshBookComboBox(_panes[1]);
         RefreshAllUi();
         TxtStatusMessage.Text = $"{action.Description} を実行しました（未保存状態・Ctrl+Zで取り消し可能）";
     }
 
-public sealed class CopyPageAction : IUndoAction
-{
-    private readonly List<OverwriteSlotAction> _slotActions = new(MacroBinaryCodec.SlotsPerPage);
-
-    public string Description { get; }
-
-    public CopyPageAction(
-        CharacterMacroStore srcChar, int srcBook, int srcPageNum,
-        CharacterMacroStore dstChar, int dstBook, int dstPageNum)
+    public sealed class CopyPageAction : IUndoAction
     {
-        var srcPage = srcChar.GetPage(srcBook, srcPageNum);
-        var dstPage = dstChar.GetPage(dstBook, dstPageNum);
+        private readonly List<OverwriteSlotAction> _slotActions = new(MacroBinaryCodec.SlotsPerPage);
 
-        for (int i = 0; i < MacroBinaryCodec.SlotsPerPage; i++)
+        public string Description { get; }
+
+        public CopyPageAction(
+            CharacterMacroStore srcChar, int srcBook, int srcPageNum,
+            CharacterMacroStore dstChar, int dstBook, int dstPageNum)
         {
-            byte[] srcBytes = srcPage.Slots[i].CloneBytes();
-            _slotActions.Add(new OverwriteSlotAction(dstPage, i, srcBytes, $"パレット複製 Slot {i}"));
+            var srcPage = srcChar.GetPage(srcBook, srcPageNum);
+            var dstPage = dstChar.GetPage(dstBook, dstPageNum);
+
+            for (int i = 0; i < MacroBinaryCodec.SlotsPerPage; i++)
+            {
+                byte[] srcBytes = srcPage.Slots[i].CloneBytes();
+                _slotActions.Add(new OverwriteSlotAction(dstPage, i, srcBytes, $"パレット複製 Slot {i}"));
+            }
+
+            Description =
+                $"パレットコピー: {srcChar.DisplayName} B{srcBook:D2}-P{srcPageNum} → {dstChar.DisplayName} B{dstBook:D2}-P{dstPageNum}";
         }
 
-        Description =
-            $"パレットコピー: {srcChar.DisplayName} B{srcBook:D2}-P{srcPageNum} → {dstChar.DisplayName} B{dstBook:D2}-P{dstPageNum}";
-    }
-
-    public void Execute()
-    {
-        foreach (var action in _slotActions)
+        public void Execute()
         {
-            action.Execute();
+            foreach (var action in _slotActions)
+            {
+                action.Execute();
+            }
+        }
+
+        public void Undo()
+        {
+            for (int i = _slotActions.Count - 1; i >= 0; i--)
+            {
+                _slotActions[i].Undo();
+            }
         }
     }
-
-    public void Undo()
-    {
-        for (int i = _slotActions.Count - 1; i >= 0; i--)
-        {
-            _slotActions[i].Undo();
-        }
-    }
-}
 
     private (bool Confirmed, bool CopyTitle) ShowBookCopyDialog(string srcLabel, string dstLabel)
     {
@@ -805,19 +1030,19 @@ public sealed class CopyPageAction : IUndoAction
     private void BtnSave_Click(object sender, RoutedEventArgs e)
     {
         UpdatePolStatus();
-        bool ignoreLock = ChkIgnorePolLock.IsChecked == true;
         string backupDir = Path.Combine(AppContext.BaseDirectory, "Backups");
 
         try
         {
-            var result = _repo.SaveAll(backupDir, ignoreLock);
+            var result = _repo.SaveAll(backupDir, ignorePolLock: false);
             if (result.Success)
             {
                 RefreshAllUi();
+                string serverNote = "\n\n※必要に応じて、FF11起動後にキャラクター選択画面からマクロの「サーバー保存」を行ってください。";
                 string msg = result.SavedFileCount > 0
-                    ? $"{result.Message}\n\nバックアップ先:\n{result.BackupPath}"
+                    ? $"{result.Message}\n\nバックアップ先:\n{result.BackupPath}{serverNote}"
                     : result.Message;
-                TxtStatusMessage.Text = result.Message;
+                TxtStatusMessage.Text = $"{result.Message}（必要に応じてゲーム側でサーバー保存を行ってください）";
                 MessageBox.Show(msg, "保存完了", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             else
@@ -843,12 +1068,14 @@ public sealed class CopyPageAction : IUndoAction
         }
     }
 
-    // ---------- UI更新・プレビュー・pol.exe監視 ----------
+    // ---------- UI更新・左右独立プレビュー・pol.exe監視 ----------
 
     private void RefreshAllUi()
     {
         RefreshPaneVisuals(_panes[0]);
         RefreshPaneVisuals(_panes[1]);
+        RefreshPanePreview(0);
+        RefreshPanePreview(1);
 
         BtnUndo.IsEnabled = _undoManager.CanUndo;
         BtnUndo.ToolTip = _undoManager.NextUndoDescription;
@@ -870,11 +1097,6 @@ public sealed class CopyPageAction : IUndoAction
         BtnCopyBookRightToLeft.IsEnabled = canBookCopy;
 
         UpdateSaveButtonState();
-
-        if (_selectedSlot.HasValue)
-        {
-            ShowPreview(_selectedSlot.Value.PaneIndex, _selectedSlot.Value.SlotIndex);
-        }
     }
 
     private void RefreshPaneVisuals(PaneState pane)
@@ -888,6 +1110,9 @@ public sealed class CopyPageAction : IUndoAction
                 pane.SlotTitleTexts[i].Text = "";
                 pane.SlotBorders[i].Background = BrushEmptyBg;
                 pane.SlotBorders[i].BorderBrush = BrushNormalBorder;
+                pane.SlotBorders[i].BorderThickness = new Thickness(1.5);
+                pane.SlotTitleTexts[i].Foreground = BrushNormalTitleFg;
+                pane.SlotKeyTexts[i].Foreground = BrushNormalKeyFg;
             }
             return;
         }
@@ -921,15 +1146,24 @@ public sealed class CopyPageAction : IUndoAction
         }
 
         bool isEmpty = page.Slots[slotIndex].IsEmpty;
-        bool isSelected = _selectedSlot == (paneIndex, slotIndex);
+        bool isSelectedInPane = pane.SelectedSlotIndex == slotIndex;
+        bool isActivePane = _activePaneIndex == paneIndex;
 
-        if (isSelected)
+        if (isSelectedInPane && isActivePane)
         {
-            border.Background = BrushSelectedBg;
-            border.BorderBrush = BrushSelectedBorder;
+            border.Background = BrushActiveSelectedBg;
+            border.BorderBrush = BrushActiveSelectedBorder;
             border.BorderThickness = new Thickness(2.5);
             titleText.Foreground = BrushSelectedTitleFg;
             keyText.Foreground = BrushSelectedKeyFg;
+        }
+        else if (isSelectedInPane)
+        {
+            border.Background = BrushInactiveSelectedBg;
+            border.BorderBrush = BrushInactiveSelectedBorder;
+            border.BorderThickness = new Thickness(2.0);
+            titleText.Foreground = BrushNormalTitleFg;
+            keyText.Foreground = BrushInactiveSelectedKeyFg;
         }
         else
         {
@@ -941,7 +1175,30 @@ public sealed class CopyPageAction : IUndoAction
         }
     }
 
-    private void ShowPreview(int paneIndex, int slotIndex)
+    private void RefreshPanePreview(int paneIndex)
+    {
+        var pane = _panes[paneIndex];
+        bool isActive = _activePaneIndex == paneIndex;
+
+        pane.PreviewBorder.BorderBrush = isActive ? BrushActivePreviewBorder : BrushNormalBorder;
+        pane.PreviewBorder.BorderThickness = new Thickness(isActive ? 2.0 : 1.0);
+        pane.TxtPreviewHeader.Foreground = isActive ? BrushNormalTitleFg : BrushInactivePreviewHeaderFg;
+
+        if (pane.SelectedSlotIndex is int slotIndex && pane.GetCurrentPage() != null)
+        {
+            pane.BtnEditSlot.IsEnabled = true;
+            ShowPreview(paneIndex, slotIndex, isHover: false);
+        }
+        else
+        {
+            pane.BtnEditSlot.IsEnabled = false;
+            string prefix = _isSinglePane && paneIndex == 0 ? "" : $"[{pane.Label}] ";
+            pane.TxtPreviewHeader.Text = $"{prefix}スロットを選択すると内容が表示されます";
+            pane.TxtPreviewBody.Text = "";
+        }
+    }
+
+    private void ShowPreview(int paneIndex, int slotIndex, bool isHover)
     {
         var pane = _panes[paneIndex];
         var page = pane.GetCurrentPage();
@@ -950,12 +1207,14 @@ public sealed class CopyPageAction : IUndoAction
         var slot = page.Slots[slotIndex];
         string bookTitle = pane.CurrentCharacter.GetBookTitle(pane.CurrentBook);
         string titleText = slot.IsEmpty ? "(空スロット)" : (string.IsNullOrEmpty(slot.Title) ? "(無題)" : slot.Title);
+        string prefix = _isSinglePane && paneIndex == 0 ? "" : $"[{pane.Label}] ";
+        string hoverMark = isHover && pane.SelectedSlotIndex != slotIndex ? " (プレビュー)" : "";
 
-        TxtPreviewHeader.Text =
-            $"[{pane.Label}] {pane.CurrentCharacter.DisplayName} / Book {pane.CurrentBook:D2} ({bookTitle}) / Page {pane.CurrentPageNumber} / {MacroSlot.GetKeyLabel(slotIndex)}  —  {titleText}";
+        pane.TxtPreviewHeader.Text =
+            $"{prefix}{pane.CurrentCharacter.DisplayName} / B{pane.CurrentBook:D2} ({bookTitle}) / P{pane.CurrentPageNumber} / {MacroSlot.GetKeyLabel(slotIndex)} — {titleText}{hoverMark}";
 
         string[] lines = slot.GetLines();
-        TxtPreviewBody.Text = string.Join(Environment.NewLine, lines.Select((line, idx) => $"{idx + 1}: {line}"));
+        pane.TxtPreviewBody.Text = string.Join(Environment.NewLine, lines.Select((line, idx) => $"{idx + 1}: {line}"));
     }
 
     private void UpdatePolStatus()
@@ -982,7 +1241,7 @@ public sealed class CopyPageAction : IUndoAction
     private void UpdateSaveButtonState()
     {
         int dirtyCount = _repo.CountDirtyFiles();
-        bool locked = _isPolRunning && ChkIgnorePolLock.IsChecked != true;
+        bool locked = _isPolRunning;
 
         BtnSave.Content = dirtyCount > 0 ? $"変更を保存 ({dirtyCount}件)" : "変更を保存";
         BtnSave.IsEnabled = dirtyCount > 0 && !locked;
@@ -995,19 +1254,35 @@ public sealed class CopyPageAction : IUndoAction
         BtnSave.Opacity = 1.0;
     }
 
-    private void ChkIgnorePolLock_Changed(object sender, RoutedEventArgs e)
-    {
-        UpdateSaveButtonState();
-    }
-
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (Keyboard.Modifiers == ModifierKeys.None && e.Key == Key.F2 && _selectedSlot.HasValue)
+        if (Keyboard.Modifiers == ModifierKeys.None)
         {
-            OpenSlotEditor(_selectedSlot.Value.PaneIndex, _selectedSlot.Value.SlotIndex);
-            e.Handled = true;
+            var activePane = _panes[_activePaneIndex];
+            if (e.Key == Key.F2 && activePane.SelectedSlotIndex is int editIndex)
+            {
+                OpenSlotEditor(_activePaneIndex, editIndex);
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Delete && activePane.SelectedSlotIndex is int delIndex)
+            {
+                // 編集可能なテキスト入力中のみ除外（読み取り専用の黒板フォーカス中はDeleteを効かせる）
+                if (Keyboard.FocusedElement is TextBoxBase { IsReadOnly: false })
+                    return;
+
+                var page = activePane.GetCurrentPage();
+                if (page != null && !page.Slots[delIndex].IsEmpty)
+                {
+                    ClearSlot(_activePaneIndex, delIndex);
+                    e.Handled = true;
+                }
+                return;
+            }
             return;
         }
+
         if (Keyboard.Modifiers != ModifierKeys.Control) return;
 
         if (e.Key == Key.Z && BtnUndo.IsEnabled)
@@ -1034,7 +1309,6 @@ public sealed class CopyPageAction : IUndoAction
 
         double slotWidth = GridLeftSlots.ActualWidth / 10.0;
 
-        // スロット1枠が横幅に対して自然な比率（やや横長〜正方形）になる高さを算出
         double targetSlotHeight = Math.Clamp(slotWidth * 0.90, 70.0, 115.0);
         double targetGridHeight = targetSlotHeight * 2.0;
 
@@ -1044,7 +1318,6 @@ public sealed class CopyPageAction : IUndoAction
             GridRightSlots.Height = targetGridHeight;
         }
 
-        // 幅に合わせて全スロット統一の読みやすいフォントサイズを算出
         double titleFontSize = Math.Clamp(slotWidth * 0.24, 13.0, 26.0);
         double keyFontSize = Math.Clamp(titleFontSize * 0.60, 10.0, 15.0);
 
@@ -1060,11 +1333,15 @@ public sealed class CopyPageAction : IUndoAction
 
     private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (ActualHeight <= 0) return;
+        if (ActualHeight <= 0 || TxtLeftPreviewBody == null || TxtRightPreviewBody == null) return;
 
-        // プレビュー欄の文字サイズもウィンドウの高さに応じて拡大（通常15pt → 最大化時24pt前後）
-        TxtPreviewBody.FontSize = Math.Clamp(ActualHeight / 48.0, 14.0, 24.0);
-        TxtPreviewHeader.FontSize = Math.Clamp(ActualHeight / 58.0, 13.0, 20.0);
+        double bodyFontSize = Math.Clamp(ActualHeight / 48.0, 14.0, 24.0);
+        double headerFontSize = Math.Clamp(ActualHeight / 58.0, 13.0, 20.0);
+
+        TxtLeftPreviewBody.FontSize = bodyFontSize;
+        TxtRightPreviewBody.FontSize = bodyFontSize;
+        TxtLeftPreviewHeader.FontSize = headerFontSize;
+        TxtRightPreviewHeader.FontSize = headerFontSize;
     }
 
     private void Window_Closing(object? sender, CancelEventArgs e)
@@ -1082,6 +1359,7 @@ public sealed class CopyPageAction : IUndoAction
                 return;
             }
         }
+        SavePaneMode(_isSinglePane);
         _polTimer.Stop();
     }
 }

@@ -9,15 +9,51 @@
         SizeChanged="Window_SizeChanged"
         PreviewKeyDown="Window_PreviewKeyDown"
         Closing="Window_Closing">
-
-    <Grid Margin="10">
+    <Window.Resources>
+        <Style x:Key="SegmentRadioButtonStyle" TargetType="RadioButton">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="#4B5563"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bd"
+                                Background="Transparent"
+                                BorderBrush="Transparent"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#F3F4F6"/>
+                                <Setter Property="Foreground" Value="#111827"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="White"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#CBD5E1"/>
+                                <Setter Property="Foreground" Value="#1D4ED8"/>
+                                <Setter Property="FontWeight" Value="Bold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    <Grid x:Name="RootGrid" Margin="10" AllowDrop="True" PreviewDragOver="RootGrid_PreviewDragOver">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*" MinHeight="180"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        
+
         <!-- 1. 上部ツールバー -->
         <Border Grid.Row="0" Background="White" BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,10">
             <DockPanel LastChildFill="False">
@@ -30,15 +66,28 @@
                             IsEnabled="False" Click="BtnSave_Click"/>
                 </StackPanel>
 
-                <!-- 右側: pol.exe 監視ステータス -->
+                <!-- 右側: 表示モード切替 & pol.exe 監視ステータス -->
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border x:Name="PolStatusBadge" Background="#DCFCE7" BorderBrush="#86EFAC" BorderThickness="1" CornerRadius="12" Padding="10,4" Margin="0,0,10,0">
+                    <Border Background="#E5E7EB" CornerRadius="6" Padding="2" Margin="0,0,12,0"
+                            ToolTip="1ペイン（編集集中）と2ペイン（整理・複製）を切り替えます">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton x:Name="RbSinglePane"
+                                         GroupName="PaneMode"
+                                         Content="1ペイン"
+                                         Style="{StaticResource SegmentRadioButtonStyle}"
+                                         Click="RbSinglePane_Click"/>
+                            <RadioButton x:Name="RbDualPane"
+                                         GroupName="PaneMode"
+                                         Content="2ペイン"
+                                         IsChecked="True"
+                                         Style="{StaticResource SegmentRadioButtonStyle}"
+                                         Click="RbDualPane_Click"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border x:Name="PolStatusBadge" Background="#DCFCE7" BorderBrush="#86EFAC" BorderThickness="1" CornerRadius="12" Padding="10,4">
                         <TextBlock x:Name="TxtPolStatus" Text="● FF11未起動 (保存可能)" Foreground="#166534" FontWeight="SemiBold" FontSize="12"/>
                     </Border>
-                    <CheckBox x:Name="ChkIgnorePolLock" Content="ロック一時解除" VerticalAlignment="Center"
-                              FontSize="11" Foreground="#6B7280"
-                              ToolTip="FF11起動中でも強制的に保存ボタンを有効にします（非推奨・自己責任）"
-                              Checked="ChkIgnorePolLock_Changed" Unchecked="ChkIgnorePolLock_Changed"/>
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -47,16 +96,16 @@
         <Grid Grid.Row="1" Margin="0,0,0,10">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="122"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition x:Name="ColCenter" Width="122"/>
+                <ColumnDefinition x:Name="ColRight" Width="*"/>
             </Grid.ColumnDefinitions>
 
             <!-- 左ペイン -->
-            <Border Grid.Column="0" Background="White" BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" Padding="10">
+            <Border x:Name="LeftPaneBorder" Grid.Column="0" Background="White" BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" Padding="10">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top">
                         <DockPanel Margin="0,0,0,8">
-                            <TextBlock Text="左パレット" FontWeight="Bold" Foreground="#1F2937" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock x:Name="TxtLeftPaneTitle" Text="左パレット" FontWeight="Bold" Foreground="#1F2937" VerticalAlignment="Center" Margin="0,0,8,0"/>
                             <TextBlock x:Name="TxtLeftDirty" Text="" Foreground="#DC2626" FontWeight="Bold" VerticalAlignment="Center"/>
                         </DockPanel>
 
@@ -68,9 +117,9 @@
                             <ComboBox x:Name="CmbLeftBook" Width="130" Margin="0,0,6,4" SelectionChanged="LeftBook_SelectionChanged"/>
 
                             <TextBlock Text="ページ:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
-                            <Button Content="&lt;" Width="24" Margin="0,0,2,4" Click="LeftPrevPage_Click"/>
+                            <Button Content="▲" Width="24" Margin="0,0,2,4" ToolTip="前のページへ" Click="LeftPrevPage_Click"/>
                             <ComboBox x:Name="CmbLeftPage" Width="68" Margin="0,0,2,4" SelectionChanged="LeftPage_SelectionChanged"/>
-                            <Button Content="&gt;" Width="24" Margin="0,0,0,4" Click="LeftNextPage_Click"/>
+                            <Button Content="▼" Width="24" Margin="0,0,0,4" ToolTip="次のページへ" Click="LeftNextPage_Click"/>
                         </WrapPanel>
                     </StackPanel>
 
@@ -80,7 +129,7 @@
             </Border>
 
             <!-- 中央：パレット／ブック単位コピー操作 -->
-            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="8,0">
+            <StackPanel x:Name="CenterCopyPanel" Grid.Column="1" VerticalAlignment="Center" Margin="8,0">
                 <TextBlock Text="パレット単位コピー" FontSize="11" FontWeight="SemiBold" Foreground="#4B5563" HorizontalAlignment="Center" Margin="0,0,0,5"/>
                 <Button x:Name="BtnCopyPageLeftToRight" Content="左 → 右&#x0a;パレット複製" Padding="4,5" Margin="0,0,0,5"
                         HorizontalContentAlignment="Center" IsEnabled="False" Click="BtnCopyPageLeftToRight_Click"/>
@@ -95,9 +144,9 @@
                 <Button x:Name="BtnCopyBookRightToLeft" Content="左 ← 右&#x0a;ブック複製" Padding="4,5"
                         HorizontalContentAlignment="Center" IsEnabled="False" Click="BtnCopyBookRightToLeft_Click"/>
             </StackPanel>
-            
+
             <!-- 右ペイン -->
-            <Border Grid.Column="2" Background="White" BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" Padding="10">
+            <Border x:Name="RightPaneBorder" Grid.Column="2" Background="White" BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" Padding="10">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top">
                         <DockPanel Margin="0,0,0,8">
@@ -113,9 +162,9 @@
                             <ComboBox x:Name="CmbRightBook" Width="130" Margin="0,0,6,4" SelectionChanged="RightBook_SelectionChanged"/>
 
                             <TextBlock Text="ページ:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
-                            <Button Content="&lt;" Width="24" Margin="0,0,2,4" Click="RightPrevPage_Click"/>
+                            <Button Content="▲" Width="24" Margin="0,0,2,4" ToolTip="前のページへ" Click="RightPrevPage_Click"/>
                             <ComboBox x:Name="CmbRightPage" Width="68" Margin="0,0,2,4" SelectionChanged="RightPage_SelectionChanged"/>
-                            <Button Content="&gt;" Width="24" Margin="0,0,0,4" Click="RightNextPage_Click"/>
+                            <Button Content="▼" Width="24" Margin="0,0,0,4" ToolTip="次のページへ" Click="RightNextPage_Click"/>
                         </WrapPanel>
                     </StackPanel>
 
@@ -125,35 +174,77 @@
             </Border>
         </Grid>
 
-        <!-- 3. 選択マクロの6行プレビュー -->
-        <Border Grid.Row="2" Background="White" BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" Padding="12">
-            <DockPanel>
-                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-                    <TextBlock x:Name="TxtPreviewHeader" Text="スロットを選択またはカーソルを合わせると、ここに6行の内容が表示されます"
-                               FontWeight="Bold" Foreground="#111827" FontSize="14"/>
-                </DockPanel>
+        <!-- 3. 選択マクロの6行プレビュー（左右独立黒板） -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition x:Name="ColPreviewGap" Width="10"/>
+                <ColumnDefinition x:Name="ColPreviewRight" Width="*"/>
+            </Grid.ColumnDefinitions>
 
-                <Border Background="#111827" CornerRadius="4" Padding="12,10">
-                    <TextBox x:Name="TxtPreviewBody"
-                             IsReadOnly="True"
-                             Background="Transparent"
-                             Foreground="#F9FAFB"
-                             BorderThickness="0"
-                             FontFamily="Consolas, BIZ UDGothic, MS Gothic"
-                             FontSize="15"
-                             TextWrapping="NoWrap"
-                             VerticalScrollBarVisibility="Auto"
-                             HorizontalScrollBarVisibility="Auto"/>
-                </Border>
-            </DockPanel>
-        </Border>
+            <!-- 左プレビュー黒板 -->
+            <Border x:Name="LeftPreviewBorder" Grid.Column="0" Background="White" BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" Padding="10">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <Button x:Name="BtnEditLeftSlot" DockPanel.Dock="Right" Content="編集..."
+                                Padding="10,2" FontSize="12" Margin="8,0,0,0"
+                                IsEnabled="False" Click="BtnEditLeftSlot_Click"/>
+                        <TextBlock x:Name="TxtLeftPreviewHeader"
+                                   Text="[左] スロットを選択すると内容が表示されます"
+                                   FontWeight="Bold" Foreground="#111827" FontSize="13"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    </DockPanel>
+
+                    <Border Background="#111827" CornerRadius="4" Padding="10,8">
+                        <TextBox x:Name="TxtLeftPreviewBody"
+                                 IsReadOnly="True"
+                                 Background="Transparent"
+                                 Foreground="#F9FAFB"
+                                 BorderThickness="0"
+                                 FontFamily="Consolas, BIZ UDGothic, MS Gothic"
+                                 FontSize="15"
+                                 TextWrapping="NoWrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"/>
+                    </Border>
+                </DockPanel>
+            </Border>
+
+            <!-- 右プレビュー黒板 -->
+            <Border x:Name="RightPreviewBorder" Grid.Column="2" Background="White" BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" Padding="10">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <Button x:Name="BtnEditRightSlot" DockPanel.Dock="Right" Content="編集..."
+                                Padding="10,2" FontSize="12" Margin="8,0,0,0"
+                                IsEnabled="False" Click="BtnEditRightSlot_Click"/>
+                        <TextBlock x:Name="TxtRightPreviewHeader"
+                                   Text="[右] スロットを選択すると内容が表示されます"
+                                   FontWeight="Bold" Foreground="#64748B" FontSize="13"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    </DockPanel>
+
+                    <Border Background="#111827" CornerRadius="4" Padding="10,8">
+                        <TextBox x:Name="TxtRightPreviewBody"
+                                 IsReadOnly="True"
+                                 Background="Transparent"
+                                 Foreground="#F9FAFB"
+                                 BorderThickness="0"
+                                 FontFamily="Consolas, BIZ UDGothic, MS Gothic"
+                                 FontSize="15"
+                                 TextWrapping="NoWrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"/>
+                    </Border>
+                </DockPanel>
+            </Border>
+        </Grid>
 
         <!-- 4. 下部ステータスバー -->
         <Border Grid.Row="3" Margin="0,8,0,0" Padding="4,2">
             <DockPanel LastChildFill="True">
                 <TextBlock DockPanel.Dock="Right"
                            Margin="16,0,0,0"
-                           Text="操作: ドラッグ＝入れ替え / Ctrl+ドラッグ＝上書きコピー / 右クリック＝コピー・貼付・クリア"
+                           Text="操作: ダブルクリック＝編集 / Delete＝クリア / ドラッグ＝入れ替え / Ctrl+ドラッグ＝コピー / 右クリック＝メニュー"
                            Foreground="#6B7280" FontSize="12"/>
                 <TextBlock x:Name="TxtStatusMessage"
                            Text="「フォルダを開く...」から FF11 の USER フォルダ（またはテスト用フォルダ）を選択してください。"
