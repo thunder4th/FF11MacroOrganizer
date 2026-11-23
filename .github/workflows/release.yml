@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'リリースバージョン (例: 2.1.0)'
+        description: '2.1.1'
         required: true
-        default: '2.1.0'
+        default: '2.1.1'
 
 permissions:
   contents: write
@@ -90,8 +90,6 @@ jobs:
             -p:FileVersion=${{ steps.ver.outputs.asm_version }} `
             -o out/self-contained
 
-      - name: Package ZIP archives and compute SHA-256 checksums
-        shell: pwsh
       - name: Package ZIP archives and compute SHA-256 checksums
         shell: pwsh
         run: |
