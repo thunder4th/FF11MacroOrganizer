@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '2.1.1'
+        description: 'リリースバージョン (例: 2.1.1)'
         required: true
         default: '2.1.1'
 
