@@ -196,16 +196,41 @@
                     </DockPanel>
 
                     <Border Background="#111827" CornerRadius="4" Padding="10,8">
-                        <TextBox x:Name="TxtLeftPreviewBody"
-                                 IsReadOnly="True"
-                                 Background="Transparent"
-                                 Foreground="#F9FAFB"
-                                 BorderThickness="0"
-                                 FontFamily="Consolas, BIZ UDGothic, MS Gothic"
-                                 FontSize="15"
-                                 TextWrapping="NoWrap"
-                                 VerticalScrollBarVisibility="Auto"
-                                 HorizontalScrollBarVisibility="Auto"/>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock x:Name="TxtLeftLineNumbers"
+                                           Grid.Column="0"
+                                           Text="1:&#x0a;2:&#x0a;3:&#x0a;4:&#x0a;5:&#x0a;6:"
+                                           Foreground="#6B7280"
+                                           FontFamily="Consolas, BIZ UDGothic, MS Gothic"
+                                           FontSize="15"
+                                           LineStackingStrategy="BlockLineHeight"
+                                           LineHeight="22"
+                                           VerticalAlignment="Top"
+                                           Margin="0,0,8,0"
+                                           Visibility="Hidden"
+                                           IsHitTestVisible="False"/>
+
+                                <TextBox x:Name="TxtLeftPreviewBody"
+                                         Grid.Column="1"
+                                         IsReadOnly="True"
+                                         Background="Transparent"
+                                         Foreground="#F9FAFB"
+                                         BorderThickness="0"
+                                         Padding="0"
+                                         FontFamily="Consolas, BIZ UDGothic, MS Gothic"
+                                         FontSize="15"
+                                         TextBlock.LineStackingStrategy="BlockLineHeight"
+                                         TextBlock.LineHeight="22"
+                                         VerticalAlignment="Top"
+                                         TextWrapping="NoWrap"/>
+                            </Grid>
+                        </ScrollViewer>
                     </Border>
                 </DockPanel>
             </Border>
@@ -224,21 +249,46 @@
                     </DockPanel>
 
                     <Border Background="#111827" CornerRadius="4" Padding="10,8">
-                        <TextBox x:Name="TxtRightPreviewBody"
-                                 IsReadOnly="True"
-                                 Background="Transparent"
-                                 Foreground="#F9FAFB"
-                                 BorderThickness="0"
-                                 FontFamily="Consolas, BIZ UDGothic, MS Gothic"
-                                 FontSize="15"
-                                 TextWrapping="NoWrap"
-                                 VerticalScrollBarVisibility="Auto"
-                                 HorizontalScrollBarVisibility="Auto"/>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock x:Name="TxtRightLineNumbers"
+                                           Grid.Column="0"
+                                           Text="1:&#x0a;2:&#x0a;3:&#x0a;4:&#x0a;5:&#x0a;6:"
+                                           Foreground="#6B7280"
+                                           FontFamily="Consolas, BIZ UDGothic, MS Gothic"
+                                           FontSize="15"
+                                           LineStackingStrategy="BlockLineHeight"
+                                           LineHeight="22"
+                                           VerticalAlignment="Top"
+                                           Margin="0,0,8,0"
+                                           Visibility="Hidden"
+                                           IsHitTestVisible="False"/>
+
+                                <TextBox x:Name="TxtRightPreviewBody"
+                                         Grid.Column="1"
+                                         IsReadOnly="True"
+                                         Background="Transparent"
+                                         Foreground="#F9FAFB"
+                                         BorderThickness="0"
+                                         Padding="0"
+                                         FontFamily="Consolas, BIZ UDGothic, MS Gothic"
+                                         FontSize="15"
+                                         TextBlock.LineStackingStrategy="BlockLineHeight"
+                                         TextBlock.LineHeight="22"
+                                         VerticalAlignment="Top"
+                                         TextWrapping="NoWrap"/>
+                            </Grid>
+                        </ScrollViewer>
                     </Border>
                 </DockPanel>
             </Border>
         </Grid>
-
+        
         <!-- 4. 下部ステータスバー -->
         <Border Grid.Row="3" Margin="0,8,0,0" Padding="4,2">
             <DockPanel LastChildFill="True">

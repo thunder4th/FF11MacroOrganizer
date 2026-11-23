@@ -28,6 +28,7 @@ public partial class MainWindow : Window
         public required TextBlock[] SlotKeyTexts { get; init; }
         public required Border PreviewBorder { get; init; }
         public required TextBlock TxtPreviewHeader { get; init; }
+        public required TextBlock TxtLineNumbers { get; init; }
         public required TextBox TxtPreviewBody { get; init; }
         public required Button BtnEditSlot { get; init; }
         public bool IsUpdating { get; set; }
@@ -124,11 +125,11 @@ public partial class MainWindow : Window
 
         _panes[0] = InitializePane(
             0, CmbLeftChar, CmbLeftBook, CmbLeftPage, TxtLeftDirty, GridLeftSlots,
-            LeftPreviewBorder, TxtLeftPreviewHeader, TxtLeftPreviewBody, BtnEditLeftSlot);
+            LeftPreviewBorder, TxtLeftPreviewHeader, TxtLeftLineNumbers, TxtLeftPreviewBody, BtnEditLeftSlot);
 
         _panes[1] = InitializePane(
             1, CmbRightChar, CmbRightBook, CmbRightPage, TxtRightDirty, GridRightSlots,
-            RightPreviewBorder, TxtRightPreviewHeader, TxtRightPreviewBody, BtnEditRightSlot);
+            RightPreviewBorder, TxtRightPreviewHeader, TxtRightLineNumbers, TxtRightPreviewBody, BtnEditRightSlot);
 
         // 両ペインの生成が完了してからページの初期選択を行う
         foreach (var pane in _panes)
@@ -156,6 +157,7 @@ public partial class MainWindow : Window
         UniformGrid grid,
         Border previewBorder,
         TextBlock txtPreviewHeader,
+        TextBlock txtLineNumbers,
         TextBox txtPreviewBody,
         Button btnEditSlot)
     {
@@ -249,6 +251,7 @@ public partial class MainWindow : Window
             SlotTitleTexts = titleTexts,
             PreviewBorder = previewBorder,
             TxtPreviewHeader = txtPreviewHeader,
+            TxtLineNumbers = txtLineNumbers,
             TxtPreviewBody = txtPreviewBody,
             BtnEditSlot = btnEditSlot
         };
@@ -565,6 +568,7 @@ public partial class MainWindow : Window
     }
 
     // ---------- セレクタ変更イベント ----------
+
     private void LeftChar_SelectionChanged(object sender, SelectionChangedEventArgs e) => OnCharChanged(_panes[0]);
     private void RightChar_SelectionChanged(object sender, SelectionChangedEventArgs e) => OnCharChanged(_panes[1]);
 
@@ -1192,6 +1196,7 @@ public partial class MainWindow : Window
         else
         {
             pane.BtnEditSlot.IsEnabled = false;
+            pane.TxtLineNumbers.Visibility = Visibility.Hidden;
             string prefix = _isSinglePane && paneIndex == 0 ? "" : $"[{pane.Label}] ";
             pane.TxtPreviewHeader.Text = $"{prefix}スロットを選択すると内容が表示されます";
             pane.TxtPreviewBody.Text = "";
@@ -1213,8 +1218,9 @@ public partial class MainWindow : Window
         pane.TxtPreviewHeader.Text =
             $"{prefix}{pane.CurrentCharacter.DisplayName} / B{pane.CurrentBook:D2} ({bookTitle}) / P{pane.CurrentPageNumber} / {MacroSlot.GetKeyLabel(slotIndex)} — {titleText}{hoverMark}";
 
+        pane.TxtLineNumbers.Visibility = Visibility.Visible;
         string[] lines = slot.GetLines();
-        pane.TxtPreviewBody.Text = string.Join(Environment.NewLine, lines.Select((line, idx) => $"{idx + 1}: {line}"));
+        pane.TxtPreviewBody.Text = string.Join(Environment.NewLine, lines);
     }
 
     private void UpdatePolStatus()
@@ -1333,13 +1339,23 @@ public partial class MainWindow : Window
 
     private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (ActualHeight <= 0 || TxtLeftPreviewBody == null || TxtRightPreviewBody == null) return;
+        if (ActualHeight <= 0 || TxtLeftPreviewBody == null || TxtRightPreviewBody == null ||
+            TxtLeftLineNumbers == null || TxtRightLineNumbers == null) return;
 
         double bodyFontSize = Math.Clamp(ActualHeight / 48.0, 14.0, 24.0);
         double headerFontSize = Math.Clamp(ActualHeight / 58.0, 13.0, 20.0);
+        double lineHeight = Math.Round(bodyFontSize * 1.45);
 
         TxtLeftPreviewBody.FontSize = bodyFontSize;
         TxtRightPreviewBody.FontSize = bodyFontSize;
+        TxtLeftLineNumbers.FontSize = bodyFontSize;
+        TxtRightLineNumbers.FontSize = bodyFontSize;
+
+        TextBlock.SetLineHeight(TxtLeftPreviewBody, lineHeight);
+        TextBlock.SetLineHeight(TxtRightPreviewBody, lineHeight);
+        TextBlock.SetLineHeight(TxtLeftLineNumbers, lineHeight);
+        TextBlock.SetLineHeight(TxtRightLineNumbers, lineHeight);
+
         TxtLeftPreviewHeader.FontSize = headerFontSize;
         TxtRightPreviewHeader.FontSize = headerFontSize;
     }

@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Text.RegularExpressions;
 
 namespace FF11MacroOrganizer;
 
@@ -41,6 +42,7 @@ public sealed class MacroEditDialog : Window
 
     private TextBox _activeInput;
     private bool _isInitializing = true;
+    private bool _isBatchUpdating;
 
     public byte[]? ResultSlotBytes { get; private set; }
 
@@ -161,7 +163,7 @@ public sealed class MacroEditDialog : Window
         // 本文見出し
         var lblBodyHeader = new TextBlock
         {
-            Text = "マクロ本文（各行 最大60バイト・定型文/アイテムは6バイト換算）",
+            Text = "マクロ本文（各行 最大60バイト・定型文/アイテムは6バイト換算・複数行ペースト対応）",
             FontWeight = FontWeights.SemiBold,
             FontSize = 12,
             Foreground = new SolidColorBrush(Color.FromRgb(55, 65, 81)),
@@ -207,6 +209,7 @@ public sealed class MacroEditDialog : Window
                     e.Handled = true;
                 }
             };
+            DataObject.AddPastingHandler(tb, (_, e) => OnLinePasting(lineIndex, e));
             Grid.SetColumn(tb, 1);
             row.Children.Add(tb);
             _txtLines[i] = tb;
@@ -263,8 +266,18 @@ public sealed class MacroEditDialog : Window
                 MessageBoxImage.Question);
             if (confirm != MessageBoxResult.Yes) return;
 
-            _txtTitle.Text = string.Empty;
-            foreach (var tb in _txtLines) tb.Text = string.Empty;
+            _isBatchUpdating = true;
+            try
+            {
+                _txtTitle.Text = string.Empty;
+                foreach (var tb in _txtLines) tb.Text = string.Empty;
+            }
+            finally
+            {
+                _isBatchUpdating = false;
+            }
+
+            ValidateAllInputs();
             _txtLines[0].Focus();
         };
         DockPanel.SetDock(btnClearAll, Dock.Left);
@@ -521,7 +534,7 @@ public sealed class MacroEditDialog : Window
 
     private void ValidateAllInputs()
     {
-        if (_isInitializing) return;
+        if (_isInitializing || _isBatchUpdating) return;
 
         var errors = new List<string>();
 
@@ -655,6 +668,82 @@ public sealed class MacroEditDialog : Window
         target.Text = current.Remove(selStart, selLen).Insert(selStart, token);
         target.Focus();
         target.CaretIndex = selStart + token.Length;
+    }
+
+    private void OnLinePasting(int startLineIndex, DataObjectPastingEventArgs e)
+    {
+        string? pastedText = null;
+        if (e.DataObject.GetDataPresent(DataFormats.UnicodeText))
+        {
+            pastedText = e.DataObject.GetData(DataFormats.UnicodeText) as string;
+        }
+        else if (e.DataObject.GetDataPresent(DataFormats.Text))
+        {
+            pastedText = e.DataObject.GetData(DataFormats.Text) as string;
+        }
+
+        if (string.IsNullOrEmpty(pastedText)) return;
+
+        // 改行を含まない通常の1行ペーストは標準動作に任せる
+        if (!pastedText.Contains('\n') && !pastedText.Contains('\r')) return;
+
+        e.CancelCommand();
+
+        string normalized = pastedText.Replace("\r\n", "\n").Replace('\r', '\n');
+        string[] lines = normalized.Split('\n');
+
+        // 行末の改行を巻き込んでコピーした場合、末尾の空要素1つだけ除外する
+        if (lines.Length > 1 && lines[^1].Length == 0)
+        {
+            lines = lines[..^1];
+        }
+
+        // 末尾改行付きで実質1行だけコピーしていた場合は、カーソル位置へ普通に挿入
+        if (lines.Length == 1)
+        {
+            TextBox target = _txtLines[startLineIndex];
+            int selStart = target.SelectionStart;
+            int selLen = target.SelectionLength;
+            string current = target.Text ?? string.Empty;
+
+            target.Text = current.Remove(selStart, selLen).Insert(selStart, lines[0]);
+            target.CaretIndex = selStart + lines[0].Length;
+            return;
+        }
+
+        // 隠し機能: 外部からコピーした行番号付き複数行（1: 〜 / 1. 〜）の行番号を自動除去
+        static bool HasLineNumberPrefix(string line) =>
+            Regex.IsMatch(line, @"^\s*[1-6]\s*[:：.]\s?");
+
+        var nonEmptyLines = lines.Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
+        if (nonEmptyLines.Length >= 2 && nonEmptyLines.All(HasLineNumberPrefix))
+        {
+            lines = lines
+                .Select(l => Regex.Replace(l, @"^\s*[1-6]\s*[:：.]\s?", string.Empty))
+                .ToArray();
+        }
+
+        // 複数行ペースト: 貼り付けた行から下に向かって順番に流し込む（最大6行目まで）
+        _isBatchUpdating = true;
+        int lastWrittenIndex = startLineIndex;
+        try
+        {
+            for (int i = 0; i < lines.Length && startLineIndex + i < _txtLines.Length; i++)
+            {
+                int targetIndex = startLineIndex + i;
+                _txtLines[targetIndex].Text = lines[i];
+                lastWrittenIndex = targetIndex;
+            }
+        }
+        finally
+        {
+            _isBatchUpdating = false;
+        }
+
+        ValidateAllInputs();
+
+        _txtLines[lastWrittenIndex].Focus();
+        _txtLines[lastWrittenIndex].CaretIndex = _txtLines[lastWrittenIndex].Text.Length;
     }
 
     private void BtnApply_Click(object sender, RoutedEventArgs e)
