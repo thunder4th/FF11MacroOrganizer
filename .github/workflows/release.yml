@@ -110,9 +110,11 @@ jobs:
 
           # GitHub Assets の並び順（アルファベット昇順）と揃えて SHA-256 チェックサムを自動生成
           $hashes = @()
-          foreach ($file in @($zipFd, $zipSc)) {$h = (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLower()$name = Split-Path -Leaf $file$hashes += "$h$name"
-          }
-          $hashes | Set-Content -Path "dist/SHA256SUMS.txt" -Encoding UTF8
+          foreach ($file in @($zipFd, $zipSc)) {
+            $h = (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLower()
+            $name = Split-Path -Leaf $file
+            $hashes += "$h  $name"
+          }          $hashes | Set-Content -Path "dist/SHA256SUMS.txt" -Encoding UTF8
 
           $body = @( "### 配布ファイルの選び方" "- **self-contained.zip（推奨・ランタイム同梱版）**: .NET 10 未導入の PC でもそのまま起動できます。" "- **framework-dependent.zip（軽量版）**: .NET 10 Desktop Runtime (x64) 導入済み環境向けです。" "" "### SHA-256 チェックサム" '```text' ) + $hashes + @(
             '```'
