@@ -48,9 +48,10 @@ public sealed class MacroEditDialog : Window
 
     public MacroEditDialog(string slotHeaderLabel, byte[] originalSlotBytes)
     {
+        var loc = Loc.Instance;
         _originalBytes = (byte[])originalSlotBytes.Clone();
 
-        Title = "マクロ編集";
+        Title = loc["DlgEditTitle"];
         Width = _lastWidth;
         Height = _lastHeight;
         MinWidth = 840;
@@ -110,7 +111,7 @@ public sealed class MacroEditDialog : Window
 
         titleRow.Children.Add(new TextBlock
         {
-            Text = "タイトル:",
+            Text = loc["DlgEditLblTitle"],
             VerticalAlignment = VerticalAlignment.Center,
             FontWeight = FontWeights.SemiBold
         });
@@ -148,7 +149,7 @@ public sealed class MacroEditDialog : Window
 
         var lblTitleHint = new TextBlock
         {
-            Text = "（全角4文字 / 半角8文字まで）",
+            Text = loc["DlgEditTitleHint"],
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(8, 0, 0, 0),
             FontSize = 11,
@@ -163,10 +164,11 @@ public sealed class MacroEditDialog : Window
         // 本文見出し
         var lblBodyHeader = new TextBlock
         {
-            Text = "マクロ本文（各行 最大60バイト・定型文/アイテムは6バイト換算・複数行ペースト対応）",
+            Text = loc["DlgEditBodyHeader"],
             FontWeight = FontWeights.SemiBold,
             FontSize = 12,
             Foreground = new SolidColorBrush(Color.FromRgb(55, 65, 81)),
+            TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 6)
         };
         Grid.SetRow(lblBodyHeader, 2);
@@ -246,7 +248,7 @@ public sealed class MacroEditDialog : Window
 
         var btnClearAll = new Button
         {
-            Content = "すべてクリア",
+            Content = loc["DlgEditBtnClearAll"],
             Padding = new Thickness(10, 6, 10, 6)
         };
         btnClearAll.Click += (_, _) =>
@@ -260,8 +262,8 @@ public sealed class MacroEditDialog : Window
             }
 
             var confirm = MessageBox.Show(
-                "タイトルと本文6行の入力内容をすべてクリアしますか？",
-                "すべてクリアの確認",
+                Loc.Instance["DlgEditClearConfirmMsg"],
+                Loc.Instance["DlgEditClearConfirmTitle"],
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question);
             if (confirm != MessageBoxResult.Yes) return;
@@ -285,7 +287,7 @@ public sealed class MacroEditDialog : Window
 
         _btnApply = new Button
         {
-            Content = "適用 (反映)",
+            Content = loc["DlgEditBtnApply"],
             Width = 110,
             Padding = new Thickness(10, 6, 10, 6),
             Background = new SolidColorBrush(Color.FromRgb(37, 99, 235)),
@@ -299,7 +301,7 @@ public sealed class MacroEditDialog : Window
 
         var btnCancel = new Button
         {
-            Content = "キャンセル",
+            Content = loc["DlgCancel"],
             Width = 96,
             Padding = new Thickness(10, 6, 10, 6),
             Margin = new Thickness(0, 0, 8, 0),
@@ -338,7 +340,7 @@ public sealed class MacroEditDialog : Window
         var dict = MacroBinaryCodec.Dictionary;
         var lblPickerTitle = new TextBlock
         {
-            Text = $"定型文・アイテム検索挿入（辞書 {dict.Count:N0} 件）",
+            Text = loc.Format("DlgEditPickerTitle", dict.Count),
             FontWeight = FontWeights.Bold,
             FontSize = 13,
             Foreground = new SolidColorBrush(Color.FromRgb(17, 24, 39)),
@@ -351,7 +353,7 @@ public sealed class MacroEditDialog : Window
         var catRow = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
         var lblCat = new TextBlock
         {
-            Text = "カテゴリ:",
+            Text = loc["DlgEditLblCategory"],
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 6, 0),
             FontSize = 12
@@ -360,7 +362,7 @@ public sealed class MacroEditDialog : Window
         catRow.Children.Add(lblCat);
 
         _cmbCategory = new ComboBox { Padding = new Thickness(6, 4, 6, 4) };
-        _cmbCategory.Items.Add("すべて");
+        _cmbCategory.Items.Add(loc["DlgEditCategoryAll"]);
         foreach (string cat in dict.Categories)
         {
             _cmbCategory.Items.Add(cat);
@@ -376,7 +378,7 @@ public sealed class MacroEditDialog : Window
         var searchRow = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
         var lblSearch = new TextBlock
         {
-            Text = "検索:",
+            Text = loc["DlgEditLblSearch"],
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 6, 0),
             FontSize = 12
@@ -388,7 +390,7 @@ public sealed class MacroEditDialog : Window
         {
             FontSize = 13,
             Padding = new Thickness(6, 4, 6, 4),
-            ToolTip = "ひらがな・カタカナ・漢字・英数で検索できます（例: とまほ / けある / びくとり）"
+            ToolTip = loc["DlgEditSearchTooltip"]
         };
         _txtSearch.TextChanged += (_, _) => RefreshSearchResults();
         _txtSearch.PreviewKeyDown += (s, e) =>
@@ -444,7 +446,7 @@ public sealed class MacroEditDialog : Window
         // 挿入ボタン
         _btnInsert = new Button
         {
-            Content = "← カーソル位置へ挿入（ダブルクリック / Enter）",
+            Content = loc["DlgEditBtnInsert"],
             Padding = new Thickness(10, 6, 10, 6),
             IsEnabled = false
         };
@@ -536,6 +538,7 @@ public sealed class MacroEditDialog : Window
     {
         if (_isInitializing || _isBatchUpdating) return;
 
+        var loc = Loc.Instance;
         var errors = new List<string>();
 
         // タイトル検証
@@ -545,7 +548,7 @@ public sealed class MacroEditDialog : Window
         _txtTitle.Background = titleOk ? Brushes.White : BrushInputErrorBg;
         if (!titleOk && titleErr != null)
         {
-            errors.Add($"タイトル: {titleErr}");
+            errors.Add(loc.Format("ErrSlotTitlePrefix", titleErr));
         }
 
         // 本文6行検証
@@ -557,7 +560,7 @@ public sealed class MacroEditDialog : Window
             _txtLines[i].Background = ok ? Brushes.White : BrushInputErrorBg;
             if (!ok && lineErr != null)
             {
-                errors.Add($"{i + 1}行目: {lineErr}");
+                errors.Add(loc.Format("ErrSlotLinePrefix", i + 1, lineErr));
             }
         }
 
@@ -571,7 +574,7 @@ public sealed class MacroEditDialog : Window
         else
         {
             _txtValidationMessage.Foreground = BrushCategoryFg;
-            _txtValidationMessage.Text = "ヒント: Ctrl+Space で右側の辞書検索へ移動 / Ctrl+Enter で適用\n※同名衝突がある単語は自動的に【名称#コード】形式で安全に挿入されます。";
+            _txtValidationMessage.Text = loc["DlgEditHint"];
             _btnApply.IsEnabled = true;
             _btnApply.Opacity = 1.0;
         }
@@ -581,8 +584,9 @@ public sealed class MacroEditDialog : Window
     {
         if (_isInitializing) return;
 
+        var loc = Loc.Instance;
         string query = _txtSearch.Text;
-        string? category = _cmbCategory.SelectedItem as string;
+        string? category = _cmbCategory.SelectedIndex <= 0 ? null : _cmbCategory.SelectedItem as string;
         var dict = MacroBinaryCodec.Dictionary;
 
         var hits = dict.Search(query, category, maxResults: 200);
@@ -632,8 +636,8 @@ public sealed class MacroEditDialog : Window
             dock.Children.Add(lblWord);
 
             string tip = string.IsNullOrEmpty(entry.Reading)
-                ? $"挿入表記: {insertToken}\nカテゴリ: {entry.Category}\nコード: {entry.Code:X8}"
-                : $"挿入表記: {insertToken}\n読み: {entry.Reading}\nカテゴリ: {entry.Category}\nコード: {entry.Code:X8}";
+                ? loc.Format("DlgEditTipNoReading", insertToken, entry.Category, entry.Code)
+                : loc.Format("DlgEditTipWithReading", insertToken, entry.Reading, entry.Category, entry.Code);
 
             var item = new ListBoxItem
             {
@@ -646,8 +650,8 @@ public sealed class MacroEditDialog : Window
         }
 
         _lblSearchCount.Text = hits.Count >= 200
-            ? "上位 200 件を表示中（文字を追加するとさらに絞り込めます）"
-            : $"一致: {hits.Count} 件";
+            ? loc["DlgEditSearchLimit"]
+            : loc.Format("DlgEditSearchMatchCount", hits.Count);
         _btnInsert.IsEnabled = _lstResults.SelectedItem != null;
     }
 
@@ -751,7 +755,11 @@ public sealed class MacroEditDialog : Window
         string[] lines = _txtLines.Select(tb => tb.Text).ToArray();
         if (!MacroBinaryCodec.TryEncodeSlot(_originalBytes, _txtTitle.Text, lines, out byte[] newBytes, out string? error))
         {
-            MessageBox.Show(error ?? "入力内容にエラーがあります。", "入力エラー", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(
+                error ?? Loc.Instance["DlgEditInputErrorFallback"],
+                Loc.Instance["DlgEditInputErrorTitle"],
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
             return;
         }
 

@@ -9,7 +9,6 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using static FF11MacroOrganizer.Core.CopyBookAction;
 
 namespace FF11MacroOrganizer;
 
@@ -18,7 +17,7 @@ public partial class MainWindow : Window
     private sealed class PaneState
     {
         public int PaneIndex { get; init; }
-        public string Label => PaneIndex == 0 ? "左" : "右";
+        public string Label => PaneIndex == 0 ? Loc.Instance["PaneLabelLeft"] : Loc.Instance["PaneLabelRight"];
         public required ComboBox CmbChar { get; init; }
         public required ComboBox CmbBook { get; init; }
         public required ComboBox CmbPage { get; init; }
@@ -97,6 +96,7 @@ public partial class MainWindow : Window
     private double _twoPaneWindowWidth = 1320;
     private static readonly string LastFolderSettingPath = Path.Combine(AppContext.BaseDirectory, "last_folder.txt");
     private static readonly string PaneModeSettingPath = Path.Combine(AppContext.BaseDirectory, "pane_mode.txt");
+    private static readonly string LanguageSettingPath = Path.Combine(AppContext.BaseDirectory, "language.txt");
 
     // 配色定義
     private static readonly SolidColorBrush BrushEmptyBg = new(Color.FromRgb(249, 250, 251));
@@ -121,15 +121,18 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        // XAML バインディング初回評価の前に初期言語を確定させる
+        Loc.Instance.SetLanguage(Loc.ResolveInitialLanguage(LoadSavedLanguage()));
+
         InitializeComponent();
 
         // スロット以外の領域ではドロップ不可カーソルにする
         RootGrid.DragOver += RootGrid_DragOver;
 
         _panes[0] = InitializePane(
-                    0, CmbLeftChar, CmbLeftBook, CmbLeftPage, TxtLeftDirty, GridLeftSlots,
-                    LeftPreviewBorder, TxtLeftPreviewHeader, TxtLeftLineNumbers, TxtLeftPreviewBody,
-                    BtnEditLeftSlot, BtnRenameLeftChar, BtnRenameLeftBook, BtnClearLeft);
+            0, CmbLeftChar, CmbLeftBook, CmbLeftPage, TxtLeftDirty, GridLeftSlots,
+            LeftPreviewBorder, TxtLeftPreviewHeader, TxtLeftLineNumbers, TxtLeftPreviewBody,
+            BtnEditLeftSlot, BtnRenameLeftChar, BtnRenameLeftBook, BtnClearLeft);
 
         _panes[1] = InitializePane(
             1, CmbRightChar, CmbRightBook, CmbRightPage, TxtRightDirty, GridRightSlots,
@@ -148,8 +151,10 @@ public partial class MainWindow : Window
         _polTimer.Tick += (_, _) => UpdatePolStatus();
         _polTimer.Start();
         UpdatePolStatus();
-        MacroBinaryCodec.Dictionary.TryLoadFromHintPath(null);
+        MacroBinaryCodec.Dictionary.TryLoadFromHintPath(null, GetActiveDictionaryLanguage());
         ApplyPaneMode(LoadPaneMode(), isStartup: true);
+        RefreshPanePreview(0);
+        RefreshPanePreview(1);
         Loaded += MainWindow_Loaded;
     }
 
@@ -165,8 +170,8 @@ public partial class MainWindow : Window
         TextBlock txtLineNumbers,
         TextBox txtPreviewBody,
         Button btnEditSlot,
-        Button btnRenameBook,
         Button btnRenameChar,
+        Button btnRenameBook,
         Button btnClear)
     {
         var borders = new Border[MacroBinaryCodec.SlotsPerPage];
@@ -239,9 +244,9 @@ public partial class MainWindow : Window
             keyTexts[i] = keyText;
             titleTexts[i] = titleText;
             grid.Children.Add(border);
-            btnClear.ContextMenu = CreateBulkClearContextMenu(paneIndex);
-
         }
+
+        btnClear.ContextMenu = CreateBulkClearContextMenu(paneIndex);
 
         cmbPage.Items.Clear();
         for (int p = 1; p <= 10; p++)
@@ -264,8 +269,8 @@ public partial class MainWindow : Window
             TxtLineNumbers = txtLineNumbers,
             TxtPreviewBody = txtPreviewBody,
             BtnEditSlot = btnEditSlot,
-            BtnRenameBook = btnRenameBook,
             BtnRenameChar = btnRenameChar,
+            BtnRenameBook = btnRenameBook,
             BtnClear = btnClear,
         };
     }
@@ -274,20 +279,26 @@ public partial class MainWindow : Window
     {
         var menu = new ContextMenu();
 
-        var miEdit = new MenuItem { Header = "編集... (ダブルクリック / F2)", FontWeight = FontWeights.Bold };
+        var miEdit = new MenuItem { FontWeight = FontWeights.Bold };
         miEdit.Click += (_, _) => OpenSlotEditor(paneIndex, slotIndex);
 
-        var miCopy = new MenuItem { Header = "コピー" };
+        var miCopy = new MenuItem();
         miCopy.Click += (_, _) => CopySlotToClipboard(paneIndex, slotIndex);
 
-        var miPaste = new MenuItem { Header = "貼り付け（上書き）" };
+        var miPaste = new MenuItem();
         miPaste.Click += (_, _) => PasteSlotFromClipboard(paneIndex, slotIndex);
 
-        var miClear = new MenuItem { Header = "クリア（空にする） (Delete)" };
+        var miClear = new MenuItem();
         miClear.Click += (_, _) => ClearSlot(paneIndex, slotIndex);
 
         menu.Opened += (_, _) =>
         {
+            var loc = Loc.Instance;
+            miEdit.Header = loc["MenuEditSlot"];
+            miCopy.Header = loc["MenuCopySlot"];
+            miPaste.Header = loc["MenuPasteSlot"];
+            miClear.Header = loc["MenuClearSlot"];
+
             bool hasPage = _panes[paneIndex].GetCurrentPage() != null;
             miEdit.IsEnabled = hasPage;
             miCopy.IsEnabled = hasPage;
@@ -302,6 +313,63 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
         menu.Items.Add(miClear);
         return menu;
+    }
+
+    // ---------- 言語切替（UI + 定型文辞書連動） ----------
+
+    private static DictionaryLanguage GetActiveDictionaryLanguage()
+        => Loc.Instance.IsJapanese ? DictionaryLanguage.Japanese : DictionaryLanguage.English;
+
+    private void BtnLangSwitch_Click(object sender, RoutedEventArgs e)
+    {
+        string nextLang = Loc.Instance.IsJapanese ? "en" : "ja";
+        Loc.Instance.SetLanguage(nextLang);
+        SaveLanguage(nextLang);
+
+        var dictLang = GetActiveDictionaryLanguage();
+        if (!string.IsNullOrEmpty(MacroBinaryCodec.Dictionary.LoadedFf11Root))
+        {
+            MacroBinaryCodec.Dictionary.SwitchLanguage(dictLang);
+        }
+        else
+        {
+            MacroBinaryCodec.Dictionary.TryLoadFromHintPath(_repo.RootPath, dictLang);
+        }
+
+        UpdateLeftPaneTitle();
+        UpdatePolStatus();
+        RefreshAllUi();
+
+        string dictNote = MacroBinaryCodec.Dictionary.Count > 0
+            ? Loc.Instance.Format("StatusDictLoaded", MacroBinaryCodec.Dictionary.Count)
+            : "";
+        TxtStatusMessage.Text = Loc.Instance.Format("StatusLanguageChanged", Loc.Instance["LangName"], dictNote);
+    }
+
+    private static string? LoadSavedLanguage()
+    {
+        try
+        {
+            if (!File.Exists(LanguageSettingPath)) return null;
+            string code = File.ReadAllText(LanguageSettingPath).Trim();
+            return string.IsNullOrEmpty(code) ? null : code;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void SaveLanguage(string code)
+    {
+        try
+        {
+            File.WriteAllText(LanguageSettingPath, code);
+        }
+        catch
+        {
+            // 設定ファイルの保存失敗は無視して動作を継続
+        }
     }
 
     // ---------- フォルダ読み込み ----------
@@ -326,8 +394,8 @@ public partial class MainWindow : Window
         if (_repo.HasUnsavedChanges)
         {
             var confirm = MessageBox.Show(
-                "未保存の変更があります。破棄して別フォルダを読み込みますか？",
-                "確認",
+                Loc.Instance["ConfirmDiscardAndOpen"],
+                Loc.Instance["ConfirmTitle"],
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);
             if (confirm != MessageBoxResult.Yes) return;
@@ -335,7 +403,7 @@ public partial class MainWindow : Window
 
         var dialog = new OpenFolderDialog
         {
-            Title = "FF11 の USER フォルダ（またはキャラフォルダ）を選択"
+            Title = Loc.Instance["OpenFolderDialogTitle"]
         };
 
         string? startDir = _repo.RootPath;
@@ -359,7 +427,7 @@ public partial class MainWindow : Window
         {
             _repo.LoadFolder(folderPath);
             _charNameStore.ApplyTo(_repo.Characters);
-            MacroBinaryCodec.Dictionary.TryLoadFromHintPath(folderPath);
+            MacroBinaryCodec.Dictionary.TryLoadFromHintPath(folderPath, GetActiveDictionaryLanguage());
             _undoManager.Clear();
             _panes[0].SelectedSlotIndex = null;
             _panes[1].SelectedSlotIndex = null;
@@ -370,8 +438,8 @@ public partial class MainWindow : Window
                 if (!isAutoLoad)
                 {
                     MessageBox.Show(
-                        "指定されたフォルダ内に FF11 のマクロファイル（mcr.ttl / mcr*.dat）が見つかりませんでした。",
-                        "読み込み失敗",
+                        Loc.Instance["MsgNoMacroFilesFound"],
+                        Loc.Instance["LoadFailedTitle"],
                         MessageBoxButton.OK,
                         MessageBoxImage.Information);
                 }
@@ -385,19 +453,23 @@ public partial class MainWindow : Window
             SaveLastFolderPath(folderPath);
 
             string dictNote = MacroBinaryCodec.Dictionary.Count > 0
-                ? $" / 定型文辞書 {MacroBinaryCodec.Dictionary.Count} 件読込済"
+                ? Loc.Instance.Format("StatusDictLoaded", MacroBinaryCodec.Dictionary.Count)
                 : "";
-            TxtStatusMessage.Text = $"読み込み完了: {_repo.Characters.Count} キャラ検出 ({_repo.RootPath}){dictNote}";
+            TxtStatusMessage.Text = Loc.Instance.Format("StatusLoadComplete", _repo.Characters.Count, _repo.RootPath ?? "", dictNote);
         }
         catch (Exception ex)
         {
             if (!isAutoLoad)
             {
-                MessageBox.Show($"読み込み中にエラーが発生しました:\n{ex.Message}", "エラー", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show(
+                    Loc.Instance.Format("MsgLoadError", ex.Message),
+                    Loc.Instance["ErrorTitle"],
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
             }
             else
             {
-                TxtStatusMessage.Text = $"自動読み込みをスキップしました: {ex.Message}";
+                TxtStatusMessage.Text = Loc.Instance.Format("StatusAutoLoadSkipped", ex.Message);
             }
         }
     }
@@ -526,6 +598,11 @@ public partial class MainWindow : Window
         SavePaneMode(false);
     }
 
+    private void UpdateLeftPaneTitle()
+    {
+        TxtLeftPaneTitle.Text = Loc.Instance[_isSinglePane ? "PaneTitleSingle" : "PaneTitleLeft"];
+    }
+
     private void ApplyPaneMode(bool singlePane, bool isStartup)
     {
         _isSinglePane = singlePane;
@@ -548,13 +625,13 @@ public partial class MainWindow : Window
             ColPreviewGap.Width = new GridLength(0);
             ColPreviewRight.Width = new GridLength(0);
 
-            TxtLeftPaneTitle.Text = "マクロパレット";
+            UpdateLeftPaneTitle();
             _activePaneIndex = 0;
 
-            MinWidth = 780;
+            MinWidth = 840;
             if (WindowState == WindowState.Normal)
             {
-                Width = Math.Max(820, Math.Round(_twoPaneWindowWidth * 0.60));
+                Width = Math.Max(860, Math.Round(_twoPaneWindowWidth * 0.65));
             }
         }
         else
@@ -568,7 +645,7 @@ public partial class MainWindow : Window
             ColPreviewGap.Width = new GridLength(10);
             ColPreviewRight.Width = new GridLength(1, GridUnitType.Star);
 
-            TxtLeftPaneTitle.Text = "左パレット";
+            UpdateLeftPaneTitle();
 
             MinWidth = 1080;
             if (!isStartup && WindowState == WindowState.Normal)
@@ -682,7 +759,7 @@ public partial class MainWindow : Window
         RefreshBookComboBox(_panes[0]);
         RefreshBookComboBox(_panes[1]);
         RefreshAllUi();
-        TxtStatusMessage.Text = $"{action.Description} を反映しました（未保存状態・Ctrl+Zで取り消し可能）";
+        TxtStatusMessage.Text = Loc.Instance.Format("StatusAppliedUndoable", action.Description);
     }
 
     private void BtnRenameLeftChar_Click(object sender, RoutedEventArgs e) => OpenCharacterNameDialog(_panes[0]);
@@ -724,14 +801,14 @@ public partial class MainWindow : Window
             RefreshAllUi();
 
             TxtStatusMessage.Text = newCustomName != null
-                ? $"キャラ表示名を設定しました: {ch.DisplayName}"
-                : $"キャラ表示名を既定に戻しました: {ch.DisplayName}";
+                ? Loc.Instance.Format("StatusCharNameSet", ch.DisplayName)
+                : Loc.Instance.Format("StatusCharNameReset", ch.DisplayName);
         }
         catch (Exception ex)
         {
             MessageBox.Show(
-                $"キャラ表示名の保存に失敗しました:\n{ex.Message}",
-                "保存エラー",
+                Loc.Instance.Format("MsgCharNameSaveError", ex.Message),
+                Loc.Instance["SaveErrorTitle"],
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
@@ -873,7 +950,10 @@ public partial class MainWindow : Window
         if (isCopy)
         {
             byte[] srcBytes = payload.Page.Slots[payload.SlotIndex].CloneBytes();
-            string desc = $"上書きコピー: {MacroSlot.GetKeyLabel(payload.SlotIndex)} → {MacroSlot.GetKeyLabel(targetSlotIndex)}";
+            string desc = Loc.Instance.Format(
+                "UndoOverwriteCopy",
+                MacroSlot.GetKeyLabel(payload.SlotIndex),
+                MacroSlot.GetKeyLabel(targetSlotIndex));
             _undoManager.Execute(new OverwriteSlotAction(targetPage, targetSlotIndex, srcBytes, desc));
             TxtStatusMessage.Text = desc;
         }
@@ -914,8 +994,12 @@ public partial class MainWindow : Window
     {
         var page = _panes[paneIndex].GetCurrentPage();
         if (page == null) return;
-        _slotClipboard = page.Slots[slotIndex].CloneBytes();
-        TxtStatusMessage.Text = $"コピーしました: {MacroSlot.GetKeyLabel(slotIndex)} ({page.Slots[slotIndex].Title})";
+        var slot = page.Slots[slotIndex];
+        _slotClipboard = slot.CloneBytes();
+        string titleLabel = slot.IsEmpty
+            ? Loc.Instance["SlotEmpty"]
+            : (string.IsNullOrEmpty(slot.Title) ? Loc.Instance["SlotUntitled"] : slot.Title);
+        TxtStatusMessage.Text = Loc.Instance.Format("StatusCopiedSlot", MacroSlot.GetKeyLabel(slotIndex), titleLabel);
     }
 
     private void PasteSlotFromClipboard(int paneIndex, int slotIndex)
@@ -923,7 +1007,7 @@ public partial class MainWindow : Window
         var page = _panes[paneIndex].GetCurrentPage();
         if (page == null || _slotClipboard == null) return;
 
-        string desc = $"貼り付け: {MacroSlot.GetKeyLabel(slotIndex)}";
+        string desc = Loc.Instance.Format("UndoPaste", MacroSlot.GetKeyLabel(slotIndex));
         _undoManager.Execute(new OverwriteSlotAction(page, slotIndex, _slotClipboard, desc));
         _activePaneIndex = paneIndex;
         _panes[paneIndex].SelectedSlotIndex = slotIndex;
@@ -937,11 +1021,11 @@ public partial class MainWindow : Window
         if (page == null) return;
 
         var empty = new byte[MacroBinaryCodec.SlotSize];
-        string desc = $"クリア: {MacroSlot.GetKeyLabel(slotIndex)}";
+        string desc = Loc.Instance.Format("UndoClearSlot", MacroSlot.GetKeyLabel(slotIndex));
         _undoManager.Execute(new OverwriteSlotAction(page, slotIndex, empty, desc));
         _activePaneIndex = paneIndex;
         _panes[paneIndex].SelectedSlotIndex = slotIndex;
-        TxtStatusMessage.Text = $"{desc}（Ctrl+Zで元に戻せます）";
+        TxtStatusMessage.Text = Loc.Instance.Format("StatusClearedSlot", desc);
         RefreshAllUi();
     }
 
@@ -953,8 +1037,9 @@ public partial class MainWindow : Window
 
         var slot = page.Slots[slotIndex];
         string bookTitle = pane.CurrentCharacter.GetBookTitle(pane.CurrentBook);
+        string prefix = _isSinglePane && paneIndex == 0 ? "" : $"[{pane.Label}] ";
         string headerLabel =
-            $"[{pane.Label}] {pane.CurrentCharacter.DisplayName} / Book {pane.CurrentBook:D2} ({bookTitle}) / Page {pane.CurrentPageNumber} / {MacroSlot.GetKeyLabel(slotIndex)}";
+            $"{prefix}{pane.CurrentCharacter.DisplayName} / Book {pane.CurrentBook:D2} ({bookTitle}) / Page {pane.CurrentPageNumber} / {MacroSlot.GetKeyLabel(slotIndex)}";
 
         byte[] beforeBytes = slot.CloneBytes();
         var dlg = new MacroEditDialog(headerLabel, beforeBytes) { Owner = this, Icon = Icon };
@@ -965,12 +1050,17 @@ public partial class MainWindow : Window
             return;
         }
 
-        string desc = $"編集: {pane.CurrentCharacter.DisplayName} B{pane.CurrentBook:D2}-P{pane.CurrentPageNumber} {MacroSlot.GetKeyLabel(slotIndex)}";
+        string desc = Loc.Instance.Format(
+            "UndoEditSlot",
+            pane.CurrentCharacter.DisplayName,
+            pane.CurrentBook,
+            pane.CurrentPageNumber,
+            MacroSlot.GetKeyLabel(slotIndex));
         _undoManager.Execute(new OverwriteSlotAction(page, slotIndex, dlg.ResultSlotBytes, desc));
         _activePaneIndex = paneIndex;
         pane.SelectedSlotIndex = slotIndex;
         RefreshAllUi();
-        TxtStatusMessage.Text = $"{desc} を反映しました（未保存状態・Ctrl+Zで取り消し可能）";
+        TxtStatusMessage.Text = Loc.Instance.Format("StatusAppliedUndoable", desc);
     }
 
     // ---------- パレット（ページ）単位コピー ----------
@@ -985,16 +1075,17 @@ public partial class MainWindow : Window
         if (srcPane.CurrentCharacter == null || dstPane.CurrentCharacter == null || srcPage == null || dstPage == null) return;
         if (ReferenceEquals(srcPage, dstPage)) return;
 
+        var loc = Loc.Instance;
         string srcLabel = $"{srcPane.CurrentCharacter.DisplayName} / Book {srcPane.CurrentBook:D2} ({srcPane.CurrentCharacter.GetBookTitle(srcPane.CurrentBook)}) / Page {srcPane.CurrentPageNumber}";
         string dstLabel = $"{dstPane.CurrentCharacter.DisplayName} / Book {dstPane.CurrentBook:D2} ({dstPane.CurrentCharacter.GetBookTitle(dstPane.CurrentBook)}) / Page {dstPane.CurrentPageNumber}";
 
         var (confirmed, _) = ShowActionConfirmDialog(
-            windowTitle: "パレット単位コピーの確認",
-            headline: "コピー先パレットの全20スロットを上書きします。\nよろしいですか？",
-            sourceLine: $"コピー元: {srcLabel}",
-            targetLine: $"コピー先: {dstLabel}",
-            noteLine: "※実行後も Ctrl+Z で元に戻せます。",
-            confirmButtonText: "コピー実行",
+            windowTitle: loc["DlgCopyPageTitle"],
+            headline: loc["DlgCopyPageHeadline"],
+            sourceLine: loc.Format("DlgCopySource", srcLabel),
+            targetLine: loc.Format("DlgCopyDest", dstLabel),
+            noteLine: loc["DlgCopyNoteUndo"],
+            confirmButtonText: loc["DlgBtnCopyExec"],
             isDestructive: false);
 
         if (!confirmed) return;
@@ -1005,7 +1096,7 @@ public partial class MainWindow : Window
 
         _undoManager.Execute(action);
         RefreshAllUi();
-        TxtStatusMessage.Text = $"{action.Description} を実行しました（未保存状態・Ctrl+Zで取り消し可能）";
+        TxtStatusMessage.Text = loc.Format("StatusExecutedUndoable", action.Description);
     }
 
     // ---------- ブック単位コピー ----------
@@ -1021,18 +1112,19 @@ public partial class MainWindow : Window
             return;
         }
 
+        var loc = Loc.Instance;
         string srcLabel = $"{srcPane.CurrentCharacter.DisplayName} / Book {srcPane.CurrentBook:D2} ({srcPane.CurrentCharacter.GetBookTitle(srcPane.CurrentBook)})";
         string dstLabel = $"{dstPane.CurrentCharacter.DisplayName} / Book {dstPane.CurrentBook:D2} ({dstPane.CurrentCharacter.GetBookTitle(dstPane.CurrentBook)})";
 
         var (confirmed, copyTitle) = ShowActionConfirmDialog(
-            windowTitle: "ブック単位コピーの確認",
-            headline: "コピー先ブックの全10ページ（200マクロ）を上書きします。\nよろしいですか？",
-            sourceLine: $"コピー元: {srcLabel}",
-            targetLine: $"コピー先: {dstLabel}",
-            noteLine: "※実行後も Ctrl+Z で元に戻せます。",
-            confirmButtonText: "コピー実行",
+            windowTitle: loc["DlgCopyBookTitle"],
+            headline: loc["DlgCopyBookHeadline"],
+            sourceLine: loc.Format("DlgCopySource", srcLabel),
+            targetLine: loc.Format("DlgCopyDest", dstLabel),
+            noteLine: loc["DlgCopyNoteUndo"],
+            confirmButtonText: loc["DlgBtnCopyExec"],
             isDestructive: false,
-            checkBoxText: "ブック名も一緒にコピーする",
+            checkBoxText: loc["DlgCopyBookIncludeTitle"],
             checkBoxDefaultChecked: true);
 
         if (!confirmed) return;
@@ -1047,7 +1139,7 @@ public partial class MainWindow : Window
         RefreshBookComboBox(_panes[0]);
         RefreshBookComboBox(_panes[1]);
         RefreshAllUi();
-        TxtStatusMessage.Text = $"{action.Description} を実行しました（未保存状態・Ctrl+Zで取り消し可能）";
+        TxtStatusMessage.Text = loc.Format("StatusExecutedUndoable", action.Description);
     }
 
     // ---------- パレット / ブック 一括クリア ----------
@@ -1056,14 +1148,18 @@ public partial class MainWindow : Window
     {
         var menu = new ContextMenu();
 
-        var miClearPage = new MenuItem { Header = "現在のパレットをクリア（20スロット）" };
+        var miClearPage = new MenuItem();
         miClearPage.Click += (_, _) => ExecuteClearPage(_panes[paneIndex]);
 
-        var miClearBook = new MenuItem { Header = "現在のブックをクリア（全10ページ・200スロット）..." };
+        var miClearBook = new MenuItem();
         miClearBook.Click += (_, _) => ExecuteClearBook(_panes[paneIndex]);
 
         menu.Opened += (_, _) =>
         {
+            var loc = Loc.Instance;
+            miClearPage.Header = loc["MenuClearPage"];
+            miClearBook.Header = loc["MenuClearBook"];
+
             bool hasChar = _panes[paneIndex].CurrentCharacter != null;
             miClearPage.IsEnabled = hasChar;
             miClearBook.IsEnabled = hasChar;
@@ -1092,10 +1188,11 @@ public partial class MainWindow : Window
         var page = pane.GetCurrentPage();
         if (ch == null || page == null) return;
 
+        var loc = Loc.Instance;
         int filledCount = page.Slots.Count(s => !s.IsEmpty);
         if (filledCount == 0)
         {
-            TxtStatusMessage.Text = $"B{pane.CurrentBook:D2}-P{pane.CurrentPageNumber} はすでに空です。";
+            TxtStatusMessage.Text = loc.Format("StatusPageAlreadyEmpty", pane.CurrentBook, pane.CurrentPageNumber);
             return;
         }
 
@@ -1103,12 +1200,12 @@ public partial class MainWindow : Window
             $"{ch.DisplayName} / Book {pane.CurrentBook:D2} ({ch.GetBookTitle(pane.CurrentBook)}) / Page {pane.CurrentPageNumber}";
 
         var (confirmed, _) = ShowActionConfirmDialog(
-            windowTitle: "パレット一括クリアの確認",
-            headline: "現在のパレット内の全20スロットをクリアします。\nよろしいですか？",
+            windowTitle: loc["DlgClearPageTitle"],
+            headline: loc["DlgClearPageHeadline"],
             sourceLine: null,
-            targetLine: $"対象: {targetLabel}",
-            noteLine: $"クリア対象: {filledCount} スロット使用中（※Ctrl+Zで取り消し可能）",
-            confirmButtonText: "クリア実行",
+            targetLine: loc.Format("DlgTarget", targetLabel),
+            noteLine: loc.Format("DlgClearPageNote", filledCount),
+            confirmButtonText: loc["DlgBtnClearExec"],
             isDestructive: true);
 
         if (!confirmed) return;
@@ -1116,7 +1213,7 @@ public partial class MainWindow : Window
         var action = new ClearPageAction(ch, pane.CurrentBook, pane.CurrentPageNumber);
         _undoManager.Execute(action);
         RefreshAllUi();
-        TxtStatusMessage.Text = $"{action.Description} を実行しました（未保存状態・Ctrl+Zで取り消し可能）";
+        TxtStatusMessage.Text = loc.Format("StatusExecutedUndoable", action.Description);
     }
 
     private void ExecuteClearBook(PaneState pane)
@@ -1124,6 +1221,7 @@ public partial class MainWindow : Window
         var ch = pane.CurrentCharacter;
         if (ch == null) return;
 
+        var loc = Loc.Instance;
         int bookNum = pane.CurrentBook;
         int filledSlots = 0;
         int filledPages = 0;
@@ -1142,20 +1240,20 @@ public partial class MainWindow : Window
 
         if (filledSlots == 0 && !hasCustomTitle)
         {
-            TxtStatusMessage.Text = $"Book {bookNum:D2} はすでに空です。";
+            TxtStatusMessage.Text = loc.Format("StatusBookAlreadyEmpty", bookNum);
             return;
         }
 
         string targetLabel = $"{ch.DisplayName} / Book {bookNum:D2} ({ch.GetBookTitle(bookNum)})";
         var (confirmed, clearTitle) = ShowActionConfirmDialog(
-            windowTitle: "ブック一括クリアの確認",
-            headline: "対象ブックの全10ページ（200マクロ）をクリアします。\nよろしいですか？",
+            windowTitle: loc["DlgClearBookTitle"],
+            headline: loc["DlgClearBookHeadline"],
             sourceLine: null,
-            targetLine: $"対象: {targetLabel}",
-            noteLine: $"クリア対象: {filledPages} ページ / {filledSlots} スロット使用中（※Ctrl+Zで取り消し可能）",
-            confirmButtonText: "クリア実行",
+            targetLine: loc.Format("DlgTarget", targetLabel),
+            noteLine: loc.Format("DlgClearBookNote", filledPages, filledSlots),
+            confirmButtonText: loc["DlgBtnClearExec"],
             isDestructive: true,
-            checkBoxText: "ブック名もクリアする（無題に戻す）",
+            checkBoxText: loc["DlgClearBookIncludeTitle"],
             checkBoxDefaultChecked: false,
             checkBoxEnabled: hasCustomTitle);
 
@@ -1163,7 +1261,7 @@ public partial class MainWindow : Window
 
         if (filledSlots == 0 && !clearTitle)
         {
-            TxtStatusMessage.Text = $"Book {bookNum:D2} のスロットはすでに空です。";
+            TxtStatusMessage.Text = loc.Format("StatusBookSlotsAlreadyEmpty", bookNum);
             return;
         }
 
@@ -1176,7 +1274,7 @@ public partial class MainWindow : Window
             RefreshBookComboBox(_panes[1]);
         }
         RefreshAllUi();
-        TxtStatusMessage.Text = $"{action.Description} を実行しました（未保存状態・Ctrl+Zで取り消し可能）";
+        TxtStatusMessage.Text = loc.Format("StatusExecutedUndoable", action.Description);
     }
 
     /// <summary>
@@ -1288,7 +1386,7 @@ public partial class MainWindow : Window
 
         var btnCancel = new Button
         {
-            Content = "キャンセル",
+            Content = Loc.Instance["DlgCancel"],
             Width = 90,
             Height = 28,
             Cursor = Cursors.Hand,
@@ -1315,7 +1413,7 @@ public partial class MainWindow : Window
         RefreshBookComboBox(_panes[0]);
         RefreshBookComboBox(_panes[1]);
         RefreshAllUi();
-        TxtStatusMessage.Text = $"元に戻しました: {desc}";
+        TxtStatusMessage.Text = Loc.Instance.Format("StatusUndone", desc ?? "");
     }
 
     private void BtnRedo_Click(object sender, RoutedEventArgs e)
@@ -1326,13 +1424,14 @@ public partial class MainWindow : Window
         RefreshBookComboBox(_panes[0]);
         RefreshBookComboBox(_panes[1]);
         RefreshAllUi();
-        TxtStatusMessage.Text = $"やり直しました: {desc}";
+        TxtStatusMessage.Text = Loc.Instance.Format("StatusRedone", desc ?? "");
     }
 
     private void BtnSave_Click(object sender, RoutedEventArgs e)
     {
         UpdatePolStatus();
         string backupDir = Path.Combine(AppContext.BaseDirectory, "Backups");
+        var loc = Loc.Instance;
 
         try
         {
@@ -1340,31 +1439,31 @@ public partial class MainWindow : Window
             if (result.Success)
             {
                 RefreshAllUi();
-                string serverNote = "\n\n※必要に応じて、FF11起動後にキャラクター選択画面からマクロの「サーバー保存」を行ってください。";
+                string serverNote = loc["MsgSaveServerNote"];
                 string msg = result.SavedFileCount > 0
-                    ? $"{result.Message}\n\nバックアップ先:\n{result.BackupPath}{serverNote}"
+                    ? loc.Format("MsgSaveBackupInfo", result.Message, result.BackupPath ?? "", serverNote)
                     : result.Message;
-                TxtStatusMessage.Text = $"{result.Message}（必要に応じてゲーム側でサーバー保存を行ってください）";
-                MessageBox.Show(msg, "保存完了", MessageBoxButton.OK, MessageBoxImage.Information);
+                TxtStatusMessage.Text = loc.Format("StatusSaved", result.Message);
+                MessageBox.Show(msg, loc["SaveDoneTitle"], MessageBoxButton.OK, MessageBoxImage.Information);
             }
             else
             {
-                MessageBox.Show(result.Message, "保存中止", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(result.Message, loc["SaveAbortedTitle"], MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
         catch (UnauthorizedAccessException ex)
         {
             MessageBox.Show(
-                $"ファイルへの書き込み権限がありません。\nアプリを「管理者として実行」してください。\n\n詳細: {ex.Message}",
-                "権限エラー",
+                loc.Format("MsgSavePermissionError", ex.Message),
+                loc["PermissionErrorTitle"],
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
         catch (Exception ex)
         {
             MessageBox.Show(
-                $"保存中にエラーが発生しました:\n{ex.Message}",
-                "保存エラー",
+                loc.Format("MsgSaveError", ex.Message),
+                loc["SaveErrorTitle"],
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
@@ -1404,10 +1503,10 @@ public partial class MainWindow : Window
     private void RefreshPaneVisuals(PaneState pane)
     {
         var page = pane.GetCurrentPage();
-        pane.BtnRenameBook.IsEnabled = pane.CurrentCharacter != null;
-        pane.BtnRenameChar.IsEnabled = pane.CurrentCharacter != null;
-        pane.BtnRenameBook.IsEnabled = pane.CurrentCharacter != null;
-        pane.BtnClear.IsEnabled = pane.CurrentCharacter != null;
+        bool hasChar = pane.CurrentCharacter != null;
+        pane.BtnRenameChar.IsEnabled = hasChar;
+        pane.BtnRenameBook.IsEnabled = hasChar;
+        pane.BtnClear.IsEnabled = hasChar;
 
         if (page == null)
         {
@@ -1429,12 +1528,13 @@ public partial class MainWindow : Window
                 ? pane.CurrentCharacter.TitleFile1.IsDirty
                 : pane.CurrentCharacter.TitleFile2.IsDirty);
 
-        pane.TxtDirty.Text = (page.IsDirty || isTitleDirty) ? "* 未保存の変更あり" : "";
+        pane.TxtDirty.Text = (page.IsDirty || isTitleDirty) ? Loc.Instance["DirtyMarker"] : "";
 
+        string untitled = Loc.Instance["SlotUntitled"];
         for (int i = 0; i < MacroBinaryCodec.SlotsPerPage; i++)
         {
             var slot = page.Slots[i];
-            pane.SlotTitleTexts[i].Text = slot.IsEmpty ? "" : (string.IsNullOrEmpty(slot.Title) ? "(無題)" : slot.Title);
+            pane.SlotTitleTexts[i].Text = slot.IsEmpty ? "" : (string.IsNullOrEmpty(slot.Title) ? untitled : slot.Title);
             ResetSlotVisual(pane.PaneIndex, i);
         }
     }
@@ -1506,7 +1606,7 @@ public partial class MainWindow : Window
             pane.BtnEditSlot.IsEnabled = false;
             pane.TxtLineNumbers.Visibility = Visibility.Hidden;
             string prefix = _isSinglePane && paneIndex == 0 ? "" : $"[{pane.Label}] ";
-            pane.TxtPreviewHeader.Text = $"{prefix}スロットを選択すると内容が表示されます";
+            pane.TxtPreviewHeader.Text = Loc.Instance.Format("PreviewSelectPrompt", prefix);
             pane.TxtPreviewBody.Text = "";
         }
     }
@@ -1517,11 +1617,14 @@ public partial class MainWindow : Window
         var page = pane.GetCurrentPage();
         if (page == null || pane.CurrentCharacter == null) return;
 
+        var loc = Loc.Instance;
         var slot = page.Slots[slotIndex];
         string bookTitle = pane.CurrentCharacter.GetBookTitle(pane.CurrentBook);
-        string titleText = slot.IsEmpty ? "(空スロット)" : (string.IsNullOrEmpty(slot.Title) ? "(無題)" : slot.Title);
+        string titleText = slot.IsEmpty
+            ? loc["SlotEmpty"]
+            : (string.IsNullOrEmpty(slot.Title) ? loc["SlotUntitled"] : slot.Title);
         string prefix = _isSinglePane && paneIndex == 0 ? "" : $"[{pane.Label}] ";
-        string hoverMark = isHover && pane.SelectedSlotIndex != slotIndex ? " (プレビュー)" : "";
+        string hoverMark = isHover && pane.SelectedSlotIndex != slotIndex ? loc["PreviewHoverSuffix"] : "";
 
         pane.TxtPreviewHeader.Text =
             $"{prefix}{pane.CurrentCharacter.DisplayName} / B{pane.CurrentBook:D2} ({bookTitle}) / P{pane.CurrentPageNumber} / {MacroSlot.GetKeyLabel(slotIndex)} — {titleText}{hoverMark}";
@@ -1539,14 +1642,14 @@ public partial class MainWindow : Window
             PolStatusBadge.Background = new SolidColorBrush(Color.FromRgb(254, 226, 226));
             PolStatusBadge.BorderBrush = new SolidColorBrush(Color.FromRgb(252, 165, 165));
             TxtPolStatus.Foreground = new SolidColorBrush(Color.FromRgb(153, 27, 27));
-            TxtPolStatus.Text = "● FF11起動中 (保存ロック)";
+            TxtPolStatus.Text = Loc.Instance["PolRunning"];
         }
         else
         {
             PolStatusBadge.Background = new SolidColorBrush(Color.FromRgb(220, 252, 231));
             PolStatusBadge.BorderBrush = new SolidColorBrush(Color.FromRgb(134, 239, 172));
             TxtPolStatus.Foreground = new SolidColorBrush(Color.FromRgb(22, 101, 52));
-            TxtPolStatus.Text = "● FF11未起動 (保存可能)";
+            TxtPolStatus.Text = Loc.Instance["PolNotRunning"];
         }
 
         UpdateSaveButtonState();
@@ -1557,7 +1660,9 @@ public partial class MainWindow : Window
         int dirtyCount = _repo.CountDirtyFiles();
         bool locked = _isPolRunning;
 
-        BtnSave.Content = dirtyCount > 0 ? $"変更を保存 ({dirtyCount}件)" : "変更を保存";
+        BtnSave.Content = dirtyCount > 0
+            ? Loc.Instance.Format("BtnSaveCount", dirtyCount)
+            : Loc.Instance["BtnSave"];
         BtnSave.IsEnabled = dirtyCount > 0 && !locked;
         BtnSave.Background = BtnSave.IsEnabled
             ? new SolidColorBrush(Color.FromRgb(37, 99, 235))
@@ -1673,8 +1778,8 @@ public partial class MainWindow : Window
         if (_repo.HasUnsavedChanges)
         {
             var res = MessageBox.Show(
-                "未保存の変更があります。破棄して終了しますか？",
-                "終了確認",
+                Loc.Instance["ConfirmDiscardAndExit"],
+                Loc.Instance["ExitConfirmTitle"],
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);
             if (res != MessageBoxResult.Yes)

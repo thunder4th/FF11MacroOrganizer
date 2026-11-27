@@ -35,7 +35,7 @@ public sealed class MacroRepository
     public void LoadFolder(string selectedPath)
     {
         if (!Directory.Exists(selectedPath))
-            throw new DirectoryNotFoundException($"フォルダが見つかりません: {selectedPath}");
+            throw new DirectoryNotFoundException(Loc.Instance.Format("ErrFolderNotFound", selectedPath));
 
         Characters.Clear();
         RootPath = selectedPath;
@@ -81,12 +81,12 @@ public sealed class MacroRepository
     {
         if (!ignorePolLock && IsPolRunning())
         {
-            return new SaveResult(false, 0, null, "pol.exe が起動しているため保存を中止しました。FF11を終了してから保存してください。");
+            return new SaveResult(false, 0, null, Loc.Instance["RepoPolRunning"]);
         }
 
         if (!HasUnsavedChanges)
         {
-            return new SaveResult(true, 0, null, "保存が必要な変更はありません。");
+            return new SaveResult(true, 0, null, Loc.Instance["RepoNoChanges"]);
         }
 
         // 1. 保存前に全対象ファイルの外部更新（タイムスタンプ変化）を検証
@@ -104,7 +104,7 @@ public sealed class MacroRepository
         if (externalModified.Count > 0)
         {
             string list = string.Join("\n", externalModified.Take(5));
-            return new SaveResult(false, 0, null, $"読み込み後に外部で更新されたファイルがあるため保存を中止しました:\n{list}");
+            return new SaveResult(false, 0, null, Loc.Instance.Format("RepoExternalModified", list));
         }
 
         // 2. バックアップ作成＆一時ファイル経由での安全書き込み
@@ -143,7 +143,7 @@ public sealed class MacroRepository
             }
         }
 
-        return new SaveResult(true, savedCount, backupSessionDir, $"{savedCount} 件のファイルを保存しました。");
+        return new SaveResult(true, savedCount, backupSessionDir, Loc.Instance.Format("RepoSavedCount", savedCount));
     }
 
     private static void CheckExternalChange(string path, bool isDirty, bool existedOnLoad, DateTime? loadedTimeUtc, List<string> errors)

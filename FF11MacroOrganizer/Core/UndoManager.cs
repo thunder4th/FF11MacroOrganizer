@@ -62,7 +62,7 @@ public sealed class SwapSlotAction : IUndoAction
         _slotA = slotA;
         _pageB = pageB;
         _slotB = slotB;
-        Description = $"入れ替え: {MacroSlot.GetKeyLabel(slotA)} ⇄ {MacroSlot.GetKeyLabel(slotB)}";
+        Description = Loc.Instance.Format("UndoSwap", MacroSlot.GetKeyLabel(slotA), MacroSlot.GetKeyLabel(slotB));
     }
 
     public void Execute() => Swap();
@@ -147,7 +147,7 @@ public sealed class CopyBookAction : IUndoAction
             }
         }
 
-        Description = $"ブックコピー: {srcChar.DisplayName} B{srcBook:D2} → {dstChar.DisplayName} B{dstBook:D2}";
+        Description = Loc.Instance.Format("UndoCopyBook", srcChar.DisplayName, srcBook, dstChar.DisplayName, dstBook);
     }
 
     public void Execute() => Apply(_newPagesBytes, _newTitleBytes);
@@ -188,11 +188,13 @@ public sealed class CopyPageAction : IUndoAction
         for (int i = 0; i < MacroBinaryCodec.SlotsPerPage; i++)
         {
             byte[] srcBytes = srcPage.Slots[i].CloneBytes();
-            _slotActions.Add(new OverwriteSlotAction(dstPage, i, srcBytes, $"パレット複製 Slot {i}"));
+            _slotActions.Add(new OverwriteSlotAction(dstPage, i, srcBytes, $"CopyPage Slot {i}"));
         }
 
-        Description =
-            $"パレットコピー: {srcChar.DisplayName} B{srcBook:D2}-P{srcPageNum} → {dstChar.DisplayName} B{dstBook:D2}-P{dstPageNum}";
+        Description = Loc.Instance.Format(
+            "UndoCopyPage",
+            srcChar.DisplayName, srcBook, srcPageNum,
+            dstChar.DisplayName, dstBook, dstPageNum);
     }
 
     public void Execute()
@@ -233,8 +235,8 @@ public sealed class RenameBookAction : IUndoAction
         _oldTitleBytes = character.CloneBookTitleBytes(bookNumber);
         _newTitleBytes = (byte[])newTitleBytes.Clone();
 
-        string label = string.IsNullOrEmpty(newTitleDisplay) ? "(無題)" : newTitleDisplay;
-        Description = $"ブック名変更: {character.DisplayName} B{bookNumber:D2} → {label}";
+        string label = string.IsNullOrEmpty(newTitleDisplay) ? Loc.Instance["SlotUntitled"] : newTitleDisplay;
+        Description = Loc.Instance.Format("UndoRenameBook", character.DisplayName, bookNumber, label);
     }
 
     public void Execute() => _character.SetBookTitleBytes(_bookNumber, _newTitleBytes);
@@ -256,7 +258,7 @@ public sealed class ClearPageAction : IUndoAction
             _oldSlots[i] = _targetPage.Slots[i].CloneBytes();
         }
 
-        Description = $"パレット一括クリア: {character.DisplayName} B{bookNumber:D2}-P{pageNumber}";
+        Description = Loc.Instance.Format("UndoClearPage", character.DisplayName, bookNumber, pageNumber);
     }
 
     public void Execute()
@@ -309,8 +311,8 @@ public sealed class ClearBookAction : IUndoAction
             _affectedPages.Add((page, oldSlots));
         }
 
-        string suffix = clearTitle ? "（ブック名含む）" : "";
-        Description = $"ブック一括クリア: {character.DisplayName} B{bookNumber:D2}{suffix}";
+        string suffix = clearTitle ? Loc.Instance["UndoClearBookTitleSuffix"] : "";
+        Description = Loc.Instance.Format("UndoClearBook", character.DisplayName, bookNumber, suffix);
     }
 
     public void Execute()

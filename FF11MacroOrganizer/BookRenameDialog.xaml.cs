@@ -43,9 +43,9 @@ public partial class BookRenameDialog : Window
             out int byteCount,
             out string? errorMessage);
 
-        TxtByteCount.Text = $"{byteCount} / {MacroBinaryCodec.MaxBookTitleBytes} バイト";
+        TxtByteCount.Text = Loc.Instance.Format("DlgByteCountFormat", byteCount, MacroBinaryCodec.MaxBookTitleBytes);
         TxtByteCount.Foreground = ok ? NormalBrush : ErrorBrush;
-        TxtError.Text = ok ? string.Empty : (errorMessage ?? "入力内容が不正です。");
+        TxtError.Text = ok ? string.Empty : (errorMessage ?? Loc.Instance["DlgInvalidInput"]);
         BtnOk.IsEnabled = ok;
 
         if (ok)

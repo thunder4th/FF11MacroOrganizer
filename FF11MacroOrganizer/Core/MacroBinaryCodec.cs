@@ -17,8 +17,6 @@ public static class MacroBinaryCodec
     public const int BooksPerTitleFile = 20;
     public const int TtlFileSize = HeaderSize + TitleRecordSize * BooksPerTitleFile; // 344 bytes
 
-
-
     // 実ファイル検証で確認済みの標準ヘッダ（新規作成時の初期値）
     public static readonly byte[] DefaultDatHeader = [0x01, 0x00, 0x00, 0x00, 0x55, 0xD6, 0x41, 0x06];
     public static readonly byte[] DefaultTtlHeader = [0x01, 0x00, 0x00, 0x00, 0x88, 0xA7, 0xC7, 0x0D];
@@ -97,7 +95,7 @@ public static class MacroBinaryCodec
         {
             if (char.IsControl(c))
             {
-                errorMessage = "改行や制御文字はブック名に使用できません。";
+                errorMessage = Loc.Instance["ErrControlCharNotAllowed"];
                 return false;
             }
         }
@@ -109,7 +107,7 @@ public static class MacroBinaryCodec
 
             if (byteCount > MaxBookTitleBytes)
             {
-                errorMessage = $"文字数が上限を超えています ({byteCount} / {MaxBookTitleBytes} バイト)";
+                errorMessage = Loc.Instance.Format("ErrByteLimitExceeded", byteCount, MaxBookTitleBytes);
                 return false;
             }
 
@@ -118,7 +116,7 @@ public static class MacroBinaryCodec
         }
         catch (EncoderFallbackException ex)
         {
-            errorMessage = $"FF11 (Shift_JIS) で使用できない文字が含まれています: '{ex.CharUnknown}'";
+            errorMessage = Loc.Instance.Format("ErrInvalidSjisChar", ex.CharUnknown);
             return false;
         }
     }
@@ -178,7 +176,7 @@ public static class MacroBinaryCodec
                 }
                 else if (isAmbiguous)
                 {
-                    errorMessage = $"「【{inner}】」は同名の定型文が複数あるため、定型文挿入から選択してください。";
+                    errorMessage = Loc.Instance.Format("ErrAmbiguousToken", inner);
                     byteCount = (int)ms.Length;
                     return false;
                 }
@@ -193,7 +191,7 @@ public static class MacroBinaryCodec
         }
         catch (EncoderFallbackException ex)
         {
-            errorMessage = $"FF11 (Shift_JIS) で使用できない文字が含まれています: '{ex.CharUnknown}'";
+            errorMessage = Loc.Instance.Format("ErrInvalidSjisChar", ex.CharUnknown);
             byteCount = (int)ms.Length;
             return false;
         }
@@ -203,7 +201,7 @@ public static class MacroBinaryCodec
 
         if (byteCount > maxBytes)
         {
-            errorMessage = $"文字数が上限を超えています ({byteCount} / {maxBytes} バイト)";
+            errorMessage = Loc.Instance.Format("ErrByteLimitExceeded", byteCount, maxBytes);
             return false;
         }
 
@@ -253,7 +251,7 @@ public static class MacroBinaryCodec
 
         if (!TryEncodeFf11Text(title, 8, out byte[] titleBytes, out _, out string? titleErr))
         {
-            errorMessage = $"タイトル: {titleErr}";
+            errorMessage = Loc.Instance.Format("ErrSlotTitlePrefix", titleErr ?? string.Empty);
             return false;
         }
 
@@ -265,7 +263,7 @@ public static class MacroBinaryCodec
             string lineText = i < lines.Count ? lines[i] : string.Empty;
             if (!TryEncodeFf11Text(lineText, 60, out byte[] encoded, out _, out string? lineErr))
             {
-                errorMessage = $"{i + 1}行目: {lineErr}";
+                errorMessage = Loc.Instance.Format("ErrSlotLinePrefix", i + 1, lineErr ?? string.Empty);
                 return false;
             }
             lineBytesList[i] = encoded;
@@ -313,7 +311,7 @@ public static class MacroBinaryCodec
         byte[] data = File.ReadAllBytes(filePath);
         if (data.Length != DatFileSize)
         {
-            throw new InvalidDataException($"ファイルサイズが不正です ({data.Length} bytes): {filePath}");
+            throw new InvalidDataException(Loc.Instance.Format("ErrInvalidFileSize", data.Length, filePath));
         }
 
         Array.Copy(data, 0, page.HeaderBytes, 0, 8);
@@ -356,7 +354,7 @@ public static class MacroBinaryCodec
         byte[] data = File.ReadAllBytes(filePath);
         if (data.Length != TtlFileSize)
         {
-            throw new InvalidDataException($"タイトルファイルサイズが不正です ({data.Length} bytes): {filePath}");
+            throw new InvalidDataException(Loc.Instance.Format("ErrInvalidTitleFileSize", data.Length, filePath));
         }
 
         Array.Copy(data, 0, unit.HeaderBytes, 0, 8);

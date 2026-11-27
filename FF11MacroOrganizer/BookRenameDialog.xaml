@@ -1,8 +1,9 @@
 ﻿<Window x:Class="FF11MacroOrganizer.BookRenameDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="ブック名の変更"
-        Width="380"
+        xmlns:core="clr-namespace:FF11MacroOrganizer.Core"
+        Title="{Binding [DlgRenameBookTitle], Source={x:Static core:Loc.Instance}}"
+        Width="390"
         SizeToContent="Height"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
@@ -10,12 +11,12 @@
         Background="#F9FAFB">
     <StackPanel Margin="16">
         <TextBlock x:Name="TxtTargetInfo"
-                   Text="キャラ / Book 01"
+                   Text="Book 01"
                    FontWeight="Bold"
                    Foreground="#1F2937"
                    Margin="0,0,0,8"/>
 
-        <TextBlock Text="新しいブック名（最大 15 バイト：半角15文字 / 全角7文字）"
+        <TextBlock Text="{Binding [DlgRenameBookPrompt], Source={x:Static core:Loc.Instance}}"
                    FontSize="12"
                    Foreground="#4B5563"
                    Margin="0,0,0,4"/>
@@ -28,7 +29,7 @@
         <DockPanel Margin="0,4,0,12">
             <TextBlock x:Name="TxtByteCount"
                        DockPanel.Dock="Right"
-                       Text="0 / 15 バイト"
+                       Text="0 / 15"
                        FontSize="12"
                        Foreground="#4B5563"/>
             <TextBlock x:Name="TxtError"
@@ -41,14 +42,14 @@
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="BtnOk"
-                    Content="変更"
-                    Width="84"
+                    Content="{Binding [DlgBtnRename], Source={x:Static core:Loc.Instance}}"
+                    Width="88"
                     Height="28"
                     Margin="0,0,8,0"
                     IsDefault="True"
                     Click="BtnOk_Click"/>
-            <Button Content="キャンセル"
-                    Width="84"
+            <Button Content="{Binding [DlgCancel], Source={x:Static core:Loc.Instance}}"
+                    Width="88"
                     Height="28"
                     IsCancel="True"/>
         </StackPanel>

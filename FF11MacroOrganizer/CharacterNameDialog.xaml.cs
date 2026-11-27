@@ -1,4 +1,5 @@
-﻿using System.Windows;
+﻿using FF11MacroOrganizer.Core;
+using System.Windows;
 
 namespace FF11MacroOrganizer;
 
@@ -10,11 +11,11 @@ public partial class CharacterNameDialog : Window
     {
         InitializeComponent();
 
-        TxtTargetInfo.Text = $"キャラ ID: {characterId}";
+        TxtTargetInfo.Text = Loc.Instance.Format("DlgCharIdFormat", characterId);
 
         if (!string.IsNullOrWhiteSpace(detectedName))
         {
-            TxtDetectedInfo.Text = $"フォルダ内 .txt からの自動検出: {detectedName}";
+            TxtDetectedInfo.Text = Loc.Instance.Format("DlgCharDetectedFormat", detectedName);
             TxtDetectedInfo.Visibility = Visibility.Visible;
         }
 
