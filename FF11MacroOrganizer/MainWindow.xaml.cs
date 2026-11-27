@@ -91,7 +91,6 @@ public partial class MainWindow : Window
     private bool _isPolRunning;
     private bool _isSinglePane;
     private double _twoPaneWindowWidth = 1320;
-    private const string DefaultFf11UserDir = @"C:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI\USER";
     private static readonly string LastFolderSettingPath = Path.Combine(AppContext.BaseDirectory, "last_folder.txt");
     private static readonly string PaneModeSettingPath = Path.Combine(AppContext.BaseDirectory, "pane_mode.txt");
 
@@ -299,7 +298,7 @@ public partial class MainWindow : Window
 
         if (string.IsNullOrEmpty(initialDir) || !Directory.Exists(initialDir))
         {
-            initialDir = Directory.Exists(DefaultFf11UserDir) ? DefaultFf11UserDir : null;
+            initialDir = Ff11InstallDetector.DetectDefaultUserDir();
         }
 
         if (!string.IsNullOrEmpty(initialDir))
@@ -328,7 +327,7 @@ public partial class MainWindow : Window
         string? startDir = _repo.RootPath;
         if (string.IsNullOrEmpty(startDir) || !Directory.Exists(startDir))
         {
-            startDir = Directory.Exists(DefaultFf11UserDir) ? DefaultFf11UserDir : null;
+            startDir = Ff11InstallDetector.DetectDefaultUserDir();
         }
         if (!string.IsNullOrEmpty(startDir))
         {
@@ -832,7 +831,7 @@ public partial class MainWindow : Window
             $"[{pane.Label}] {pane.CurrentCharacter.DisplayName} / Book {pane.CurrentBook:D2} ({bookTitle}) / Page {pane.CurrentPageNumber} / {MacroSlot.GetKeyLabel(slotIndex)}";
 
         byte[] beforeBytes = slot.CloneBytes();
-        var dlg = new MacroEditDialog(headerLabel, beforeBytes) { Owner = this };
+        var dlg = new MacroEditDialog(headerLabel, beforeBytes) { Owner = this, Icon = Icon };
         if (dlg.ShowDialog() != true || dlg.ResultSlotBytes == null) return;
 
         if (beforeBytes.AsSpan().SequenceEqual(dlg.ResultSlotBytes))

@@ -5,6 +5,12 @@ using System.Text;
 
 namespace FF11MacroOrganizer.Core;
 
+public enum DictionaryLanguage
+{
+    Japanese,
+    English
+}
+
 public sealed record AutoTranslateEntry(
     uint Code,
     string Text,
@@ -18,25 +24,62 @@ public sealed class AutoTranslateDictionary
 {
     private const int ItemRecordSize = 0x1400; // 5,120 bytes
 
-    // 日本語アイテムDAT（実アイテム系10ファイル）
-    private static readonly (string RelPath, string Category)[] JapaneseItemDats =
-    [
-        (@"ROM\0\4.DAT",     "アイテム(一般・素材)"),
-        (@"ROM\0\5.DAT",     "アイテム(消費・薬品)"),
-        (@"ROM\0\6.DAT",     "アイテム(武器)"),
-        (@"ROM\0\7.DAT",     "アイテム(防具)"),
-        (@"ROM\0\8.DAT",     "アイテム(アタッチメント)"),
-        (@"ROM\0\9.DAT",     "アイテム(ギル)"),
-        (@"ROM\286\72.DAT",  "アイテム(防具・IL装備)"),
-        (@"ROM\301\114.DAT", "アイテム(追加一般)"),
-        (@"ROM\217\20.DAT",  "アイテム(メイズタビュラ)"),
-        (@"ROM\387\13.DAT",  "アイテム(セレスタイト等)"),
-    ];
+    private sealed record LanguageDatSet(
+        byte LangByte,
+        string MainAutoTranslateDat,
+        string AreaDMsgDat,
+        string JobDMsgDat,
+        string AbilityDMsgDat,
+        string SpellDMsgDat,
+        (string RelPath, string Category)[] ItemDats);
+
+    private static readonly LanguageDatSet JapaneseDatSet = new(
+        LangByte: 0x01,
+        MainAutoTranslateDat: @"ROM\168\24.DAT",
+        AreaDMsgDat: @"ROM\165\63.DAT",
+        JobDMsgDat: @"ROM\165\64.DAT",
+        AbilityDMsgDat: @"ROM\181\68.DAT",
+        SpellDMsgDat: @"ROM\181\69.DAT",
+        ItemDats:
+        [
+            (@"ROM\0\4.DAT",     "アイテム(一般・素材)"),
+            (@"ROM\0\5.DAT",     "アイテム(消費・薬品)"),
+            (@"ROM\0\6.DAT",     "アイテム(武器)"),
+            (@"ROM\0\7.DAT",     "アイテム(防具)"),
+            (@"ROM\0\8.DAT",     "アイテム(アタッチメント)"),
+            (@"ROM\0\9.DAT",     "アイテム(ギル)"),
+            (@"ROM\286\72.DAT",  "アイテム(防具・IL装備)"),
+            (@"ROM\301\114.DAT", "アイテム(追加一般)"),
+            (@"ROM\217\20.DAT",  "アイテム(メイズタビュラ)"),
+            (@"ROM\387\13.DAT",  "アイテム(セレスタイト等)"),
+        ]);
+
+    private static readonly LanguageDatSet EnglishDatSet = new(
+        LangByte: 0x02,
+        MainAutoTranslateDat: @"ROM\168\25.DAT",
+        AreaDMsgDat: @"ROM\165\84.DAT",
+        JobDMsgDat: @"ROM\165\86.DAT",
+        AbilityDMsgDat: @"ROM\181\72.DAT",
+        SpellDMsgDat: @"ROM\181\73.DAT",
+        ItemDats:
+        [
+            (@"ROM\118\106.DAT", "Items (General)"),
+            (@"ROM\118\107.DAT", "Items (Usable)"),
+            (@"ROM\118\108.DAT", "Items (Weapons)"),
+            (@"ROM\118\109.DAT", "Items (Armor)"),
+            (@"ROM\118\110.DAT", "Items (Automaton)"),
+            (@"ROM\174\48.DAT",  "Items (Currency)"),
+            (@"ROM\286\73.DAT",  "Items (Armor / iLvl)"),
+            (@"ROM\301\115.DAT", "Items (General 2)"),
+            (@"ROM\217\21.DAT",  "Items (Maze Tabula)"),
+            (@"ROM\387\14.DAT",  "Items (Misc)"),
+        ]);
 
     private static readonly byte[] StringHeaderMarker = CreateStringHeaderMarker();
 
     private readonly Dictionary<uint, AutoTranslateEntry> _entries = new();
     private readonly Dictionary<string, List<uint>> _textToCodes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<uint>> _textToCodesIgnoreCase = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<AutoTranslateEntry> _allEntries = [];
     private readonly List<string> _categories = [];
 
@@ -44,11 +87,39 @@ public sealed class AutoTranslateDictionary
     public int StandardCount { get; private set; }
     public int ItemCount { get; private set; }
     public string? LoadedFf11Root { get; private set; }
+    public DictionaryLanguage CurrentLanguage { get; private set; } = DictionaryLanguage.Japanese;
     public IReadOnlyList<string> Categories => _categories;
+
+    private byte ActiveLangByte => CurrentLanguage == DictionaryLanguage.English ? (byte)0x02 : (byte)0x01;
+
+    private bool TryGetEntry(uint code, out AutoTranslateEntry entry)
+    {
+        if (_entries.TryGetValue(code, out entry!))
+        {
+            return true;
+        }
+
+        // 定型文(0x02)・アイテム(0x07)で別言語バイト(0x01〜0x04)だった場合、現在の辞書言語へ正規化して解決
+        byte type = (byte)(code >> 24);
+        byte lang = (byte)((code >> 16) & 0xFF);
+        byte activeLang = ActiveLangByte;
+
+        if ((type == 0x02 || type == 0x07) && lang is >= 0x01 and <= 0x04 && lang != activeLang)
+        {
+            uint mappedCode = (code & 0xFF00FFFFu) | ((uint)activeLang << 16);
+            if (_entries.TryGetValue(mappedCode, out entry!))
+            {
+                return true;
+            }
+        }
+
+        entry = default!;
+        return false;
+    }
 
     public bool TryResolve(uint code, out string text)
     {
-        if (_entries.TryGetValue(code, out var entry))
+        if (TryGetEntry(code, out var entry))
         {
             text = entry.Text;
             return true;
@@ -59,19 +130,26 @@ public sealed class AutoTranslateDictionary
 
     public bool IsAmbiguous(uint code)
     {
-        return _entries.TryGetValue(code, out var entry) &&
+        return TryGetEntry(code, out var entry) &&
                _textToCodes.TryGetValue(entry.Text, out var list) &&
                list.Count > 1;
     }
 
+    private string FormatUnknown(uint code)
+    {
+        return CurrentLanguage == DictionaryLanguage.English
+            ? $"【AT:{code:X8}】"
+            : $"【定型文:{code:X8}】";
+    }
+
     /// <summary>
-    /// 閲覧プレビュー用の表記（常にコードなしの日本語表記）
+    /// 閲覧プレビュー用の表記（常にコードなしの現在言語表記）
     /// </summary>
     public string FormatForDisplay(uint code)
     {
-        return _entries.TryGetValue(code, out var entry)
+        return TryGetEntry(code, out var entry)
             ? $"【{entry.Text}】"
-            : $"【定型文:{code:X8}】";
+            : FormatUnknown(code);
     }
 
     /// <summary>
@@ -79,12 +157,12 @@ public sealed class AutoTranslateDictionary
     /// </summary>
     public string FormatForEditing(uint code)
     {
-        if (!_entries.TryGetValue(code, out var entry))
+        if (!TryGetEntry(code, out var entry))
         {
-            return $"【定型文:{code:X8}】";
+            return FormatUnknown(code);
         }
 
-        return IsAmbiguous(code)
+        return IsAmbiguous(entry.Code)
             ? $"【{entry.Text}#{code:X8}】"
             : $"【{entry.Text}】";
     }
@@ -98,11 +176,19 @@ public sealed class AutoTranslateDictionary
         isAmbiguous = false;
         if (string.IsNullOrEmpty(tokenInner)) return false;
 
-        // 1. 【定型文:XXXXXXXX】形式
-        const string rawPrefix = "定型文:";
-        if (tokenInner.StartsWith(rawPrefix, StringComparison.Ordinal) &&
-            tokenInner.Length == rawPrefix.Length + 8 &&
-            uint.TryParse(tokenInner.AsSpan(rawPrefix.Length), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out code))
+        // 1. 【定型文:XXXXXXXX】 / 【AT:XXXXXXXX】形式
+        const string jpRawPrefix = "定型文:";
+        if (tokenInner.StartsWith(jpRawPrefix, StringComparison.Ordinal) &&
+            tokenInner.Length == jpRawPrefix.Length + 8 &&
+            uint.TryParse(tokenInner.AsSpan(jpRawPrefix.Length), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out code))
+        {
+            return true;
+        }
+
+        const string enRawPrefix = "AT:";
+        if (tokenInner.StartsWith(enRawPrefix, StringComparison.OrdinalIgnoreCase) &&
+            tokenInner.Length == enRawPrefix.Length + 8 &&
+            uint.TryParse(tokenInner.AsSpan(enRawPrefix.Length), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out code))
         {
             return true;
         }
@@ -115,7 +201,7 @@ public sealed class AutoTranslateDictionary
             return true;
         }
 
-        // 3. 通常の【単語】形式を辞書から逆引き
+        // 3. 通常の【単語】形式を辞書から逆引き（完全一致を最優先）
         if (_textToCodes.TryGetValue(tokenInner, out var candidates))
         {
             if (candidates.Count == 1)
@@ -131,16 +217,34 @@ public sealed class AutoTranslateDictionary
             }
         }
 
+        // 4. 英語手入力向けの大文字・小文字無視フォールバック
+        if (_textToCodesIgnoreCase.TryGetValue(tokenInner, out var ciCandidates))
+        {
+            if (ciCandidates.Count == 1)
+            {
+                code = ciCandidates[0];
+                return true;
+            }
+
+            if (ciCandidates.Count > 1)
+            {
+                isAmbiguous = true;
+                return false;
+            }
+        }
+
         return false;
     }
 
     /// <summary>
-    /// 編集画面の定型文挿入ピッカー用検索（ひらがな・カタカナ・全角半角の揺れを吸収）
+    /// 編集画面の定型文挿入ピッカー用検索（ひらがな・カタカナ・全角半角・大小文字の揺れを吸収）
     /// </summary>
     public List<AutoTranslateEntry> Search(string query, string? categoryFilter = null, int maxResults = 200)
     {
         string normQuery = NormalizeForSearch(query);
-        bool hasCategory = !string.IsNullOrWhiteSpace(categoryFilter) && categoryFilter != "すべて";
+        bool hasCategory = !string.IsNullOrWhiteSpace(categoryFilter) &&
+                           categoryFilter != "すべて" &&
+                           !string.Equals(categoryFilter, "All", StringComparison.OrdinalIgnoreCase);
 
         var exactOrPrefix = new List<AutoTranslateEntry>();
         var contains = new List<AutoTranslateEntry>();
@@ -184,79 +288,84 @@ public sealed class AutoTranslateDictionary
     }
 
     /// <summary>
-    /// 指定されたパス（USERフォルダやキャラフォルダでも可）または既定パスから FF11 ルートを探して辞書を読み込む
+    /// 指定されたパス（USERフォルダやコピー先フォルダでも可）またはレジストリ検出先から FF11 ルートを探して辞書を読み込む
     /// </summary>
-    public bool TryLoadFromHintPath(string? hintPath)
+    public bool TryLoadFromHintPath(string? hintPath, DictionaryLanguage? language = null)
     {
+        var targetLanguage = language ?? CurrentLanguage;
         string? ff11Root = FindFf11Root(hintPath);
-        if (ff11Root == null) return false;
+        if (ff11Root == null)
+        {
+            CurrentLanguage = targetLanguage;
+            return false;
+        }
 
-        if (string.Equals(LoadedFf11Root, ff11Root, StringComparison.OrdinalIgnoreCase) && _entries.Count > 0)
+        if (string.Equals(LoadedFf11Root, ff11Root, StringComparison.OrdinalIgnoreCase) &&
+            CurrentLanguage == targetLanguage &&
+            _entries.Count > 0)
         {
             return true;
         }
 
-        LoadFromFf11Root(ff11Root);
+        LoadFromFf11Root(ff11Root, targetLanguage);
+        return _entries.Count > 0;
+    }
+
+    /// <summary>
+    /// 読み込み済みの FF11 ルートのまま辞書言語を切り替える（UI言語切替時用）
+    /// </summary>
+    public bool SwitchLanguage(DictionaryLanguage language)
+    {
+        if (CurrentLanguage == language && _entries.Count > 0)
+        {
+            return true;
+        }
+
+        CurrentLanguage = language;
+        if (string.IsNullOrEmpty(LoadedFf11Root))
+        {
+            return false;
+        }
+
+        LoadFromFf11Root(LoadedFf11Root, language);
         return _entries.Count > 0;
     }
 
     private static string? FindFf11Root(string? hintPath)
     {
-        const string relMarker = @"ROM\168\24.DAT";
-
-        if (!string.IsNullOrWhiteSpace(hintPath))
-        {
-            try
-            {
-                var dir = new DirectoryInfo(hintPath);
-                for (int i = 0; i < 4 && dir != null; i++, dir = dir.Parent)
-                {
-                    if (File.Exists(Path.Combine(dir.FullName, relMarker)))
-                    {
-                        return dir.FullName;
-                    }
-                }
-            }
-            catch
-            {
-                // パス不正時は既定パスへフォールバック
-            }
-        }
-
-        const string defaultRoot = @"C:\Program Files (x86)\PlayOnline\SquareEnix\FINAL FANTASY XI";
-        if (File.Exists(Path.Combine(defaultRoot, relMarker)))
-        {
-            return defaultRoot;
-        }
-
-        return null;
+        return Ff11InstallDetector.ResolveFf11Root(hintPath);
     }
 
-    private void LoadFromFf11Root(string ff11Root)
+    private void LoadFromFf11Root(string ff11Root, DictionaryLanguage language)
     {
+        // 英語版 DAT も H♂ Mannequin 等の記号に Shift_JIS を使用するため日英共通で shift_jis を使用
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         var sjis = Encoding.GetEncoding("shift_jis");
 
+        var datSet = language == DictionaryLanguage.English ? EnglishDatSet : JapaneseDatSet;
+
         _entries.Clear();
         _textToCodes.Clear();
+        _textToCodesIgnoreCase.Clear();
         _allEntries.Clear();
         _categories.Clear();
         StandardCount = 0;
         ItemCount = 0;
         LoadedFf11Root = ff11Root;
+        CurrentLanguage = language;
 
         var categorySet = new HashSet<string>(StringComparer.Ordinal);
 
         // 1. 通常定型文 (0x02) + 参照先 d_msg マスターの読み込み
-        string mainDat = Path.Combine(ff11Root, @"ROM\168\24.DAT");
+        string mainDat = Path.Combine(ff11Root, datSet.MainAutoTranslateDat);
         if (File.Exists(mainDat))
         {
-            string[] areas = ReadDMsgStrings(Path.Combine(ff11Root, @"ROM\165\63.DAT"), sjis);     // @A
-            string[] jobs = ReadDMsgStrings(Path.Combine(ff11Root, @"ROM\165\64.DAT"), sjis);      // @J
-            string[] abilities = ReadDMsgStrings(Path.Combine(ff11Root, @"ROM\181\68.DAT"), sjis); // @Y
-            string[] spells = ReadDMsgStrings(Path.Combine(ff11Root, @"ROM\181\69.DAT"), sjis);    // @C
+            string[] areas = ReadDMsgStrings(Path.Combine(ff11Root, datSet.AreaDMsgDat), sjis);         // @A
+            string[] jobs = ReadDMsgStrings(Path.Combine(ff11Root, datSet.JobDMsgDat), sjis);           // @J
+            string[] abilities = ReadDMsgStrings(Path.Combine(ff11Root, datSet.AbilityDMsgDat), sjis);  // @Y
+            string[] spells = ReadDMsgStrings(Path.Combine(ff11Root, datSet.SpellDMsgDat), sjis);       // @C
 
-            var rawEntries = ParseAutoTranslateDat(mainDat, sjis);
+            var rawEntries = ParseAutoTranslateDat(mainDat, datSet.LangByte, sjis);
             foreach (var (code, rawText, reading, category) in rawEntries)
             {
                 string resolved = ResolveReferenceTag(rawText, areas, spells, jobs, abilities);
@@ -267,13 +376,13 @@ public sealed class AutoTranslateDictionary
             }
         }
 
-        // 2. 日本語アイテム名 (0x07) の読み込み
-        foreach (var (relPath, category) in JapaneseItemDats)
+        // 2. アイテム名 (0x07) の読み込み
+        foreach (var (relPath, category) in datSet.ItemDats)
         {
             string fullPath = Path.Combine(ff11Root, relPath);
             if (!File.Exists(fullPath)) continue;
 
-            LoadJapaneseItemDat(fullPath, category, sjis, categorySet);
+            LoadItemDat(fullPath, datSet.LangByte, category, sjis, categorySet);
         }
     }
 
@@ -306,13 +415,20 @@ public sealed class AutoTranslateDictionary
         }
         codeList.Add(code);
 
+        if (!_textToCodesIgnoreCase.TryGetValue(text, out var ciList))
+        {
+            ciList = [];
+            _textToCodesIgnoreCase[text] = ciList;
+        }
+        ciList.Add(code);
+
         if (categorySet.Add(category))
         {
             _categories.Add(category);
         }
     }
 
-    private void LoadJapaneseItemDat(string path, string category, Encoding sjis, HashSet<string> categorySet)
+    private void LoadItemDat(string path, byte langByte, string category, Encoding sjis, HashSet<string> categorySet)
     {
         byte[] allBytes = File.ReadAllBytes(path);
         int recordCount = allBytes.Length / ItemRecordSize;
@@ -335,9 +451,9 @@ public sealed class AutoTranslateDictionary
             if (nameBytes.Length == 0) continue;
 
             string name = sjis.GetString(nameBytes);
-            if (string.IsNullOrWhiteSpace(name) || name == "." || name == "(空き)") continue;
+            if (string.IsNullOrWhiteSpace(name) || name == "." || name == "(空き)" || name == "(NULL)") continue;
 
-            uint code = 0x07010000u | id;
+            uint code = 0x07000000u | ((uint)langByte << 16) | id;
             int before = _entries.Count;
             AddEntry(code, name, string.Empty, category, isItem: true, categorySet);
             if (_entries.Count > before) ItemCount++;
@@ -375,7 +491,10 @@ public sealed class AutoTranslateDictionary
         return rawText;
     }
 
-    private static List<(uint Code, string Text, string Reading, string Category)> ParseAutoTranslateDat(string path, Encoding sjis)
+    private static List<(uint Code, string Text, string Reading, string Category)> ParseAutoTranslateDat(
+        string path,
+        byte expectedLangByte,
+        Encoding sjis)
     {
         var list = new List<(uint, string, string, string)>();
         byte[] data = File.ReadAllBytes(path);
@@ -383,13 +502,15 @@ public sealed class AutoTranslateDictionary
 
         while (offset + 76 <= data.Length)
         {
-            if (data[offset] != 0x02 || data[offset + 1] != 0x01 || data[offset + 3] != 0x00) break;
+            if (data[offset] != 0x02 || data[offset + 1] != expectedLangByte || data[offset + 3] != 0x00) break;
 
             byte groupId = data[offset + 2];
             string categoryName = DecodeNullTerminated(data.AsSpan(offset + 4, 32), sjis);
             if (string.IsNullOrWhiteSpace(categoryName))
             {
-                categoryName = $"定型文グループ 0x{groupId:X2}";
+                categoryName = expectedLangByte == 0x02
+                    ? $"Auto-Translate 0x{groupId:X2}"
+                    : $"定型文グループ 0x{groupId:X2}";
             }
 
             uint entryCount = BinaryPrimitives.ReadUInt32LittleEndian(data.AsSpan(offset + 68, 4));
