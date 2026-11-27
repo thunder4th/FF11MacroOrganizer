@@ -1,0 +1,54 @@
+﻿<Window x:Class="FF11MacroOrganizer.CharacterNameDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="キャラ表示名の設定"
+        Width="390"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        Background="#F9FAFB">
+    <StackPanel Margin="16">
+        <TextBlock x:Name="TxtTargetInfo"
+                   Text="キャラ ID: aedeb8"
+                   FontWeight="Bold"
+                   Foreground="#1F2937"
+                   Margin="0,0,0,4"/>
+
+        <TextBlock x:Name="TxtDetectedInfo"
+                   Text=""
+                   FontSize="12"
+                   Foreground="#4B5563"
+                   Margin="0,0,0,8"
+                   Visibility="Collapsed"/>
+
+        <TextBlock Text="アプリ内の表示名（空欄で保存すると既定表示に戻ります）"
+                   FontSize="12"
+                   Foreground="#4B5563"
+                   Margin="0,0,0,4"/>
+
+        <TextBox x:Name="TxtCharacterName"
+                 FontSize="14"
+                 Padding="6,4"
+                 MaxLength="32"/>
+
+        <TextBlock Text="※アプリ内の表示専用です（FF11のファイルは変更しません）"
+                   FontSize="11"
+                   Foreground="#6B7280"
+                   Margin="0,6,0,14"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="BtnOk"
+                    Content="設定"
+                    Width="84"
+                    Height="28"
+                    Margin="0,0,8,0"
+                    IsDefault="True"
+                    Click="BtnOk_Click"/>
+            <Button Content="キャンセル"
+                    Width="84"
+                    Height="28"
+                    IsCancel="True"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

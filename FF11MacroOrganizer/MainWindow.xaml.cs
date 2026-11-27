@@ -31,7 +31,9 @@ public partial class MainWindow : Window
         public required TextBlock TxtLineNumbers { get; init; }
         public required TextBox TxtPreviewBody { get; init; }
         public required Button BtnEditSlot { get; init; }
+        public required Button BtnRenameChar { get; init; }
         public required Button BtnRenameBook { get; init; }
+        public required Button BtnClear { get; init; }
         public bool IsUpdating { get; set; }
 
         public CharacterMacroStore? CurrentCharacter { get; set; }
@@ -79,6 +81,7 @@ public partial class MainWindow : Window
     }
 
     private readonly MacroRepository _repo = new();
+    private readonly CharacterNameStore _charNameStore = new();
     private readonly UndoManager _undoManager = new();
     private readonly PaneState[] _panes = new PaneState[2];
     private readonly DispatcherTimer _polTimer = new();
@@ -126,12 +129,13 @@ public partial class MainWindow : Window
         _panes[0] = InitializePane(
                     0, CmbLeftChar, CmbLeftBook, CmbLeftPage, TxtLeftDirty, GridLeftSlots,
                     LeftPreviewBorder, TxtLeftPreviewHeader, TxtLeftLineNumbers, TxtLeftPreviewBody,
-                    BtnEditLeftSlot, BtnRenameLeftBook);
+                    BtnEditLeftSlot, BtnRenameLeftChar, BtnRenameLeftBook, BtnClearLeft);
 
         _panes[1] = InitializePane(
             1, CmbRightChar, CmbRightBook, CmbRightPage, TxtRightDirty, GridRightSlots,
             RightPreviewBorder, TxtRightPreviewHeader, TxtRightLineNumbers, TxtRightPreviewBody,
-            BtnEditRightSlot, BtnRenameRightBook);
+            BtnEditRightSlot, BtnRenameRightChar, BtnRenameRightBook, BtnClearRight);
+
         // 両ペインの生成が完了してからページの初期選択を行う
         foreach (var pane in _panes)
         {
@@ -161,7 +165,9 @@ public partial class MainWindow : Window
         TextBlock txtLineNumbers,
         TextBox txtPreviewBody,
         Button btnEditSlot,
-        Button btnRenameBook)
+        Button btnRenameBook,
+        Button btnRenameChar,
+        Button btnClear)
     {
         var borders = new Border[MacroBinaryCodec.SlotsPerPage];
         var keyTexts = new TextBlock[MacroBinaryCodec.SlotsPerPage];
@@ -233,6 +239,8 @@ public partial class MainWindow : Window
             keyTexts[i] = keyText;
             titleTexts[i] = titleText;
             grid.Children.Add(border);
+            btnClear.ContextMenu = CreateBulkClearContextMenu(paneIndex);
+
         }
 
         cmbPage.Items.Clear();
@@ -257,6 +265,8 @@ public partial class MainWindow : Window
             TxtPreviewBody = txtPreviewBody,
             BtnEditSlot = btnEditSlot,
             BtnRenameBook = btnRenameBook,
+            BtnRenameChar = btnRenameChar,
+            BtnClear = btnClear,
         };
     }
 
@@ -348,6 +358,7 @@ public partial class MainWindow : Window
         try
         {
             _repo.LoadFolder(folderPath);
+            _charNameStore.ApplyTo(_repo.Characters);
             MacroBinaryCodec.Dictionary.TryLoadFromHintPath(folderPath);
             _undoManager.Clear();
             _panes[0].SelectedSlotIndex = null;
@@ -472,6 +483,33 @@ public partial class MainWindow : Window
         }
     }
 
+    private void RefreshCharComboBox(PaneState pane)
+    {
+        bool prevUpdating = pane.IsUpdating;
+        pane.IsUpdating = true;
+        try
+        {
+            int selectedIdx = pane.CurrentCharacter != null
+                ? _repo.Characters.IndexOf(pane.CurrentCharacter)
+                : -1;
+
+            pane.CmbChar.Items.Clear();
+            foreach (var ch in _repo.Characters)
+            {
+                pane.CmbChar.Items.Add(ch.DisplayName);
+            }
+
+            if (selectedIdx >= 0 && selectedIdx < _repo.Characters.Count)
+            {
+                pane.CmbChar.SelectedIndex = selectedIdx;
+            }
+        }
+        finally
+        {
+            pane.IsUpdating = prevUpdating;
+        }
+    }
+
     // ---------- 1ペイン / 2ペイン モード切替 ----------
 
     private void RbSinglePane_Click(object sender, RoutedEventArgs e)
@@ -513,10 +551,10 @@ public partial class MainWindow : Window
             TxtLeftPaneTitle.Text = "マクロパレット";
             _activePaneIndex = 0;
 
-            MinWidth = 700;
+            MinWidth = 780;
             if (WindowState == WindowState.Normal)
             {
-                Width = Math.Max(760, Math.Round(_twoPaneWindowWidth * 0.56));
+                Width = Math.Max(820, Math.Round(_twoPaneWindowWidth * 0.60));
             }
         }
         else
@@ -525,7 +563,7 @@ public partial class MainWindow : Window
             RightPaneBorder.Visibility = Visibility.Visible;
             RightPreviewBorder.Visibility = Visibility.Visible;
 
-            ColCenter.Width = new GridLength(122);
+            ColCenter.Width = new GridLength(98);
             ColRight.Width = new GridLength(1, GridUnitType.Star);
             ColPreviewGap.Width = new GridLength(10);
             ColPreviewRight.Width = new GridLength(1, GridUnitType.Star);
@@ -645,6 +683,58 @@ public partial class MainWindow : Window
         RefreshBookComboBox(_panes[1]);
         RefreshAllUi();
         TxtStatusMessage.Text = $"{action.Description} を反映しました（未保存状態・Ctrl+Zで取り消し可能）";
+    }
+
+    private void BtnRenameLeftChar_Click(object sender, RoutedEventArgs e) => OpenCharacterNameDialog(_panes[0]);
+    private void BtnRenameRightChar_Click(object sender, RoutedEventArgs e) => OpenCharacterNameDialog(_panes[1]);
+
+    private void OpenCharacterNameDialog(PaneState pane)
+    {
+        var ch = pane.CurrentCharacter;
+        if (ch == null) return;
+
+        var dlg = new CharacterNameDialog(ch.CharacterId, ch.CustomCharacterName, ch.DetectedCharacterName)
+        {
+            Owner = this,
+            Icon = Icon
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        // 自動検出名と全く同じ文字列が入力された場合、元々カスタム未設定なら不要な保存をしない
+        string? newCustomName = dlg.CustomName;
+        if (newCustomName != null &&
+            string.IsNullOrEmpty(ch.CustomCharacterName) &&
+            string.Equals(newCustomName, ch.DetectedCharacterName, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (string.Equals(ch.CustomCharacterName, newCustomName, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        try
+        {
+            _charNameStore.SetName(ch.CharacterId, newCustomName);
+            ch.SetCustomCharacterName(newCustomName);
+
+            RefreshCharComboBox(_panes[0]);
+            RefreshCharComboBox(_panes[1]);
+            RefreshAllUi();
+
+            TxtStatusMessage.Text = newCustomName != null
+                ? $"キャラ表示名を設定しました: {ch.DisplayName}"
+                : $"キャラ表示名を既定に戻しました: {ch.DisplayName}";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"キャラ表示名の保存に失敗しました:\n{ex.Message}",
+                "保存エラー",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
     }
 
     // ---------- 選択管理＆ドラッグ＆ドロップ処理 ----------
@@ -898,13 +988,16 @@ public partial class MainWindow : Window
         string srcLabel = $"{srcPane.CurrentCharacter.DisplayName} / Book {srcPane.CurrentBook:D2} ({srcPane.CurrentCharacter.GetBookTitle(srcPane.CurrentBook)}) / Page {srcPane.CurrentPageNumber}";
         string dstLabel = $"{dstPane.CurrentCharacter.DisplayName} / Book {dstPane.CurrentBook:D2} ({dstPane.CurrentCharacter.GetBookTitle(dstPane.CurrentBook)}) / Page {dstPane.CurrentPageNumber}";
 
-        var confirm = MessageBox.Show(
-            $"コピー先パレットの全20スロットを上書きします。\nよろしいですか？\n\nコピー元: {srcLabel}\nコピー先: {dstLabel}",
-            "パレット単位コピーの確認",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question);
+        var (confirmed, _) = ShowActionConfirmDialog(
+            windowTitle: "パレット単位コピーの確認",
+            headline: "コピー先パレットの全20スロットを上書きします。\nよろしいですか？",
+            sourceLine: $"コピー元: {srcLabel}",
+            targetLine: $"コピー先: {dstLabel}",
+            noteLine: "※実行後も Ctrl+Z で元に戻せます。",
+            confirmButtonText: "コピー実行",
+            isDestructive: false);
 
-        if (confirm != MessageBoxResult.Yes) return;
+        if (!confirmed) return;
 
         var action = new CopyPageAction(
             srcPane.CurrentCharacter, srcPane.CurrentBook, srcPane.CurrentPageNumber,
@@ -931,7 +1024,17 @@ public partial class MainWindow : Window
         string srcLabel = $"{srcPane.CurrentCharacter.DisplayName} / Book {srcPane.CurrentBook:D2} ({srcPane.CurrentCharacter.GetBookTitle(srcPane.CurrentBook)})";
         string dstLabel = $"{dstPane.CurrentCharacter.DisplayName} / Book {dstPane.CurrentBook:D2} ({dstPane.CurrentCharacter.GetBookTitle(dstPane.CurrentBook)})";
 
-        var (confirmed, copyTitle) = ShowBookCopyDialog(srcLabel, dstLabel);
+        var (confirmed, copyTitle) = ShowActionConfirmDialog(
+            windowTitle: "ブック単位コピーの確認",
+            headline: "コピー先ブックの全10ページ（200マクロ）を上書きします。\nよろしいですか？",
+            sourceLine: $"コピー元: {srcLabel}",
+            targetLine: $"コピー先: {dstLabel}",
+            noteLine: "※実行後も Ctrl+Z で元に戻せます。",
+            confirmButtonText: "コピー実行",
+            isDestructive: false,
+            checkBoxText: "ブック名も一緒にコピーする",
+            checkBoxDefaultChecked: true);
+
         if (!confirmed) return;
 
         var action = new CopyBookAction(
@@ -947,99 +1050,259 @@ public partial class MainWindow : Window
         TxtStatusMessage.Text = $"{action.Description} を実行しました（未保存状態・Ctrl+Zで取り消し可能）";
     }
 
-    public sealed class CopyPageAction : IUndoAction
+    // ---------- パレット / ブック 一括クリア ----------
+
+    private ContextMenu CreateBulkClearContextMenu(int paneIndex)
     {
-        private readonly List<OverwriteSlotAction> _slotActions = new(MacroBinaryCodec.SlotsPerPage);
+        var menu = new ContextMenu();
 
-        public string Description { get; }
+        var miClearPage = new MenuItem { Header = "現在のパレットをクリア（20スロット）" };
+        miClearPage.Click += (_, _) => ExecuteClearPage(_panes[paneIndex]);
 
-        public CopyPageAction(
-            CharacterMacroStore srcChar, int srcBook, int srcPageNum,
-            CharacterMacroStore dstChar, int dstBook, int dstPageNum)
+        var miClearBook = new MenuItem { Header = "現在のブックをクリア（全10ページ・200スロット）..." };
+        miClearBook.Click += (_, _) => ExecuteClearBook(_panes[paneIndex]);
+
+        menu.Opened += (_, _) =>
         {
-            var srcPage = srcChar.GetPage(srcBook, srcPageNum);
-            var dstPage = dstChar.GetPage(dstBook, dstPageNum);
+            bool hasChar = _panes[paneIndex].CurrentCharacter != null;
+            miClearPage.IsEnabled = hasChar;
+            miClearBook.IsEnabled = hasChar;
+        };
 
-            for (int i = 0; i < MacroBinaryCodec.SlotsPerPage; i++)
-            {
-                byte[] srcBytes = srcPage.Slots[i].CloneBytes();
-                _slotActions.Add(new OverwriteSlotAction(dstPage, i, srcBytes, $"パレット複製 Slot {i}"));
-            }
-
-            Description =
-                $"パレットコピー: {srcChar.DisplayName} B{srcBook:D2}-P{srcPageNum} → {dstChar.DisplayName} B{dstBook:D2}-P{dstPageNum}";
-        }
-
-        public void Execute()
-        {
-            foreach (var action in _slotActions)
-            {
-                action.Execute();
-            }
-        }
-
-        public void Undo()
-        {
-            for (int i = _slotActions.Count - 1; i >= 0; i--)
-            {
-                _slotActions[i].Undo();
-            }
-        }
+        menu.Items.Add(miClearPage);
+        menu.Items.Add(new Separator());
+        menu.Items.Add(miClearBook);
+        return menu;
     }
 
-    private (bool Confirmed, bool CopyTitle) ShowBookCopyDialog(string srcLabel, string dstLabel)
+    private void BtnClearLeft_Click(object sender, RoutedEventArgs e) => OpenBulkClearMenu(BtnClearLeft);
+    private void BtnClearRight_Click(object sender, RoutedEventArgs e) => OpenBulkClearMenu(BtnClearRight);
+
+    private static void OpenBulkClearMenu(Button button)
+    {
+        if (button.ContextMenu == null) return;
+        button.ContextMenu.PlacementTarget = button;
+        button.ContextMenu.Placement = PlacementMode.Bottom;
+        button.ContextMenu.IsOpen = true;
+    }
+
+    private void ExecuteClearPage(PaneState pane)
+    {
+        var ch = pane.CurrentCharacter;
+        var page = pane.GetCurrentPage();
+        if (ch == null || page == null) return;
+
+        int filledCount = page.Slots.Count(s => !s.IsEmpty);
+        if (filledCount == 0)
+        {
+            TxtStatusMessage.Text = $"B{pane.CurrentBook:D2}-P{pane.CurrentPageNumber} はすでに空です。";
+            return;
+        }
+
+        string targetLabel =
+            $"{ch.DisplayName} / Book {pane.CurrentBook:D2} ({ch.GetBookTitle(pane.CurrentBook)}) / Page {pane.CurrentPageNumber}";
+
+        var (confirmed, _) = ShowActionConfirmDialog(
+            windowTitle: "パレット一括クリアの確認",
+            headline: "現在のパレット内の全20スロットをクリアします。\nよろしいですか？",
+            sourceLine: null,
+            targetLine: $"対象: {targetLabel}",
+            noteLine: $"クリア対象: {filledCount} スロット使用中（※Ctrl+Zで取り消し可能）",
+            confirmButtonText: "クリア実行",
+            isDestructive: true);
+
+        if (!confirmed) return;
+
+        var action = new ClearPageAction(ch, pane.CurrentBook, pane.CurrentPageNumber);
+        _undoManager.Execute(action);
+        RefreshAllUi();
+        TxtStatusMessage.Text = $"{action.Description} を実行しました（未保存状態・Ctrl+Zで取り消し可能）";
+    }
+
+    private void ExecuteClearBook(PaneState pane)
+    {
+        var ch = pane.CurrentCharacter;
+        if (ch == null) return;
+
+        int bookNum = pane.CurrentBook;
+        int filledSlots = 0;
+        int filledPages = 0;
+        for (int p = 1; p <= 10; p++)
+        {
+            int count = ch.GetPage(bookNum, p).Slots.Count(s => !s.IsEmpty);
+            if (count > 0)
+            {
+                filledSlots += count;
+                filledPages++;
+            }
+        }
+
+        byte[] currentTitleBytes = ch.CloneBookTitleBytes(bookNum);
+        bool hasCustomTitle = !string.IsNullOrEmpty(MacroBinaryCodec.DecodeFf11Text(currentTitleBytes));
+
+        if (filledSlots == 0 && !hasCustomTitle)
+        {
+            TxtStatusMessage.Text = $"Book {bookNum:D2} はすでに空です。";
+            return;
+        }
+
+        string targetLabel = $"{ch.DisplayName} / Book {bookNum:D2} ({ch.GetBookTitle(bookNum)})";
+        var (confirmed, clearTitle) = ShowActionConfirmDialog(
+            windowTitle: "ブック一括クリアの確認",
+            headline: "対象ブックの全10ページ（200マクロ）をクリアします。\nよろしいですか？",
+            sourceLine: null,
+            targetLine: $"対象: {targetLabel}",
+            noteLine: $"クリア対象: {filledPages} ページ / {filledSlots} スロット使用中（※Ctrl+Zで取り消し可能）",
+            confirmButtonText: "クリア実行",
+            isDestructive: true,
+            checkBoxText: "ブック名もクリアする（無題に戻す）",
+            checkBoxDefaultChecked: false,
+            checkBoxEnabled: hasCustomTitle);
+
+        if (!confirmed) return;
+
+        if (filledSlots == 0 && !clearTitle)
+        {
+            TxtStatusMessage.Text = $"Book {bookNum:D2} のスロットはすでに空です。";
+            return;
+        }
+
+        var action = new ClearBookAction(ch, bookNum, clearTitle);
+        _undoManager.Execute(action);
+
+        if (clearTitle)
+        {
+            RefreshBookComboBox(_panes[0]);
+            RefreshBookComboBox(_panes[1]);
+        }
+        RefreshAllUi();
+        TxtStatusMessage.Text = $"{action.Description} を実行しました（未保存状態・Ctrl+Zで取り消し可能）";
+    }
+
+    /// <summary>
+    /// パレット／ブックのコピー・一括クリアで共通使用する確認ダイアログ
+    /// </summary>
+    private (bool Confirmed, bool OptionChecked) ShowActionConfirmDialog(
+        string windowTitle,
+        string headline,
+        string? sourceLine,
+        string targetLine,
+        string? noteLine,
+        string confirmButtonText,
+        bool isDestructive,
+        string? checkBoxText = null,
+        bool checkBoxDefaultChecked = false,
+        bool checkBoxEnabled = true)
     {
         var dlg = new Window
         {
-            Title = "ブック単位コピーの確認",
+            Title = windowTitle,
             Width = 460,
             SizeToContent = SizeToContent.Height,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize,
+            ShowInTaskbar = false,
             Owner = this,
-            Background = Brushes.White
+            Icon = Icon,
+            Background = new SolidColorBrush(Color.FromRgb(0xF9, 0xFA, 0xFB))
         };
 
         var root = new StackPanel { Margin = new Thickness(18) };
+
         root.Children.Add(new TextBlock
         {
-            Text = "コピー先ブックの全10ページ（200マクロ）を上書きします。\nよろしいですか？",
+            Text = headline,
             FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0x29, 0x37)),
+            TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 12)
         });
 
-        root.Children.Add(new TextBlock { Text = $"コピー元: {srcLabel}", Margin = new Thickness(0, 0, 0, 4) });
-        root.Children.Add(new TextBlock { Text = $"コピー先: {dstLabel}", Foreground = new SolidColorBrush(Color.FromRgb(185, 28, 28)), Margin = new Thickness(0, 0, 0, 14) });
-
-        var chkCopyTitle = new CheckBox
+        if (!string.IsNullOrEmpty(sourceLine))
         {
-            Content = "ブック名も一緒にコピーする",
-            IsChecked = true,
-            Margin = new Thickness(0, 0, 0, 16)
-        };
-        root.Children.Add(chkCopyTitle);
+            root.Children.Add(new TextBlock
+            {
+                Text = sourceLine,
+                Foreground = new SolidColorBrush(Color.FromRgb(0x37, 0x41, 0x51)),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+        }
 
-        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        var btnCancel = new Button { Content = "キャンセル", Width = 90, Padding = new Thickness(8, 5, 8, 5), Margin = new Thickness(0, 0, 8, 0), IsCancel = true };
+        root.Children.Add(new TextBlock
+        {
+            Text = targetLine,
+            Foreground = new SolidColorBrush(Color.FromRgb(0xB9, 0x1C, 0x1C)),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, string.IsNullOrEmpty(noteLine) ? 14 : 6)
+        });
+
+        if (!string.IsNullOrEmpty(noteLine))
+        {
+            root.Children.Add(new TextBlock
+            {
+                Text = noteLine,
+                FontSize = 12,
+                Foreground = new SolidColorBrush(Color.FromRgb(0x4B, 0x55, 0x63)),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 14)
+            });
+        }
+
+        CheckBox? chkOption = null;
+        if (!string.IsNullOrEmpty(checkBoxText))
+        {
+            chkOption = new CheckBox
+            {
+                Content = checkBoxText,
+                IsChecked = checkBoxDefaultChecked,
+                IsEnabled = checkBoxEnabled,
+                Margin = new Thickness(0, 0, 0, 16)
+            };
+            root.Children.Add(chkOption);
+        }
+
+        var btnPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+
+        var primaryBg = isDestructive
+            ? Color.FromRgb(0xDC, 0x26, 0x26)
+            : Color.FromRgb(0x25, 0x63, 0xEB);
+
         var btnOk = new Button
         {
-            Content = "コピー実行",
+            Content = confirmButtonText,
             Width = 100,
-            Padding = new Thickness(8, 5, 8, 5),
-            Background = new SolidColorBrush(Color.FromRgb(37, 99, 235)),
+            Height = 28,
+            Margin = new Thickness(0, 0, 8, 0),
+            Background = new SolidColorBrush(primaryBg),
             Foreground = Brushes.White,
             BorderThickness = new Thickness(0),
+            Cursor = Cursors.Hand,
             IsDefault = true
         };
         btnOk.Click += (_, _) => dlg.DialogResult = true;
 
-        btnPanel.Children.Add(btnCancel);
+        var btnCancel = new Button
+        {
+            Content = "キャンセル",
+            Width = 90,
+            Height = 28,
+            Cursor = Cursors.Hand,
+            IsCancel = true
+        };
+
         btnPanel.Children.Add(btnOk);
+        btnPanel.Children.Add(btnCancel);
         root.Children.Add(btnPanel);
+
         dlg.Content = root;
 
         bool result = dlg.ShowDialog() == true;
-        return (result, chkCopyTitle.IsChecked == true);
+        return (result, chkOption?.IsChecked == true);
     }
 
     // ---------- Undo / Redo / 保存 ----------
@@ -1142,6 +1405,9 @@ public partial class MainWindow : Window
     {
         var page = pane.GetCurrentPage();
         pane.BtnRenameBook.IsEnabled = pane.CurrentCharacter != null;
+        pane.BtnRenameChar.IsEnabled = pane.CurrentCharacter != null;
+        pane.BtnRenameBook.IsEnabled = pane.CurrentCharacter != null;
+        pane.BtnClear.IsEnabled = pane.CurrentCharacter != null;
 
         if (page == null)
         {

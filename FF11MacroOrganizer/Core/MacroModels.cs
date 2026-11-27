@@ -117,10 +117,17 @@ public sealed class TitleFileUnit
 public sealed class CharacterMacroStore
 {
     public string CharacterId { get; }
-    public string? CharacterName { get; }
+    public string? DetectedCharacterName { get; }
+    public string? CustomCharacterName { get; private set; }
+
+    public string? CharacterName => !string.IsNullOrWhiteSpace(CustomCharacterName)
+        ? CustomCharacterName
+        : DetectedCharacterName;
+
     public string DisplayName => string.IsNullOrWhiteSpace(CharacterName)
         ? CharacterId
         : $"{CharacterName} ({CharacterId})";
+
     public string FolderPath { get; }
 
     public TitleFileUnit TitleFile1 { get; } // Book 1-20 (mcr.ttl)
@@ -132,11 +139,18 @@ public sealed class CharacterMacroStore
     {
         CharacterId = characterId;
         FolderPath = folderPath;
-        CharacterName = ResolveCharacterName(folderPath);
+        DetectedCharacterName = ResolveCharacterName(folderPath);
         TitleFile1 = MacroBinaryCodec.ReadTitleFile(Path.Combine(folderPath, "mcr.ttl"), 0);
         TitleFile2 = MacroBinaryCodec.ReadTitleFile(Path.Combine(folderPath, "mcr_2.ttl"), 20);
     }
 
+    public void SetCustomCharacterName(string? customName)
+    {
+        string? normalized = string.IsNullOrWhiteSpace(customName) ? null : customName.Trim();
+        CustomCharacterName = normalized;
+    }
+
+    // 以下、ResolveCharacterName / GetPage / GetBookTitle 等は既存のままで変更なし
     /// <summary>
     /// キャラフォルダ直下の .txt ファイル名（拡張子除く）をキャラ名として取得する
     /// </summary>

@@ -147,48 +147,7 @@ public sealed class CopyBookAction : IUndoAction
             }
         }
 
-        Description = $"ブックコピー: {srcChar.CharacterId} Book{srcBook} → {dstChar.CharacterId} Book{dstBook}";
-    }
-
-    public sealed class CopyPageAction : IUndoAction
-    {
-        private readonly List<OverwriteSlotAction> _slotActions = new(MacroBinaryCodec.SlotsPerPage);
-
-        public string Description { get; }
-
-        public CopyPageAction(
-            CharacterMacroStore srcChar, int srcBook, int srcPageNum,
-            CharacterMacroStore dstChar, int dstBook, int dstPageNum)
-        {
-            var srcPage = srcChar.GetPage(srcBook, srcPageNum);
-            var dstPage = dstChar.GetPage(dstBook, dstPageNum);
-
-            for (int i = 0; i < MacroBinaryCodec.SlotsPerPage; i++)
-            {
-                byte[] srcBytes = srcPage.Slots[i].CloneBytes();
-                _slotActions.Add(new OverwriteSlotAction(dstPage, i, srcBytes, $"パレット複製 Slot {i}"));
-            }
-
-            Description =
-                $"パレットコピー: {srcChar.DisplayName} B{srcBook:D2}-P{srcPageNum} → {dstChar.DisplayName} B{dstBook:D2}-P{dstPageNum}";
-        }
-
-        public void Execute()
-        {
-            foreach (var action in _slotActions)
-            {
-                action.Execute();
-            }
-        }
-
-        public void Undo()
-        {
-            // IsDirty フラグを正確に元の状態へ戻すため逆順で取り消す
-            for (int i = _slotActions.Count - 1; i >= 0; i--)
-            {
-                _slotActions[i].Undo();
-            }
-        }
+        Description = $"ブックコピー: {srcChar.DisplayName} B{srcBook:D2} → {dstChar.DisplayName} B{dstBook:D2}";
     }
 
     public void Execute() => Apply(_newPagesBytes, _newTitleBytes);
@@ -211,33 +170,180 @@ public sealed class CopyBookAction : IUndoAction
             _dstChar.SetBookTitleBytes(_dstBook, titleBytes);
         }
     }
+}
 
-    public sealed class RenameBookAction : IUndoAction
+public sealed class CopyPageAction : IUndoAction
+{
+    private readonly List<OverwriteSlotAction> _slotActions = new(MacroBinaryCodec.SlotsPerPage);
+
+    public string Description { get; }
+
+    public CopyPageAction(
+        CharacterMacroStore srcChar, int srcBook, int srcPageNum,
+        CharacterMacroStore dstChar, int dstBook, int dstPageNum)
     {
-        private readonly CharacterMacroStore _character;
-        private readonly int _bookNumber;
-        private readonly byte[] _oldTitleBytes;
-        private readonly byte[] _newTitleBytes;
+        var srcPage = srcChar.GetPage(srcBook, srcPageNum);
+        var dstPage = dstChar.GetPage(dstBook, dstPageNum);
 
-        public string Description { get; }
-
-        public RenameBookAction(
-            CharacterMacroStore character,
-            int bookNumber,
-            byte[] newTitleBytes,
-            string newTitleDisplay)
+        for (int i = 0; i < MacroBinaryCodec.SlotsPerPage; i++)
         {
-            _character = character;
-            _bookNumber = bookNumber;
-            _oldTitleBytes = character.CloneBookTitleBytes(bookNumber);
-            _newTitleBytes = (byte[])newTitleBytes.Clone();
-
-            string label = string.IsNullOrEmpty(newTitleDisplay) ? "(無題)" : newTitleDisplay;
-            Description = $"ブック名変更: {character.DisplayName} B{bookNumber:D2} → {label}";
+            byte[] srcBytes = srcPage.Slots[i].CloneBytes();
+            _slotActions.Add(new OverwriteSlotAction(dstPage, i, srcBytes, $"パレット複製 Slot {i}"));
         }
 
-        public void Execute() => _character.SetBookTitleBytes(_bookNumber, _newTitleBytes);
-        public void Undo() => _character.SetBookTitleBytes(_bookNumber, _oldTitleBytes);
+        Description =
+            $"パレットコピー: {srcChar.DisplayName} B{srcBook:D2}-P{srcPageNum} → {dstChar.DisplayName} B{dstBook:D2}-P{dstPageNum}";
     }
 
+    public void Execute()
+    {
+        foreach (var action in _slotActions)
+        {
+            action.Execute();
+        }
+    }
+
+    public void Undo()
+    {
+        // IsDirty フラグを正確に元の状態へ戻すため逆順で取り消す
+        for (int i = _slotActions.Count - 1; i >= 0; i--)
+        {
+            _slotActions[i].Undo();
+        }
+    }
+}
+
+public sealed class RenameBookAction : IUndoAction
+{
+    private readonly CharacterMacroStore _character;
+    private readonly int _bookNumber;
+    private readonly byte[] _oldTitleBytes;
+    private readonly byte[] _newTitleBytes;
+
+    public string Description { get; }
+
+    public RenameBookAction(
+        CharacterMacroStore character,
+        int bookNumber,
+        byte[] newTitleBytes,
+        string newTitleDisplay)
+    {
+        _character = character;
+        _bookNumber = bookNumber;
+        _oldTitleBytes = character.CloneBookTitleBytes(bookNumber);
+        _newTitleBytes = (byte[])newTitleBytes.Clone();
+
+        string label = string.IsNullOrEmpty(newTitleDisplay) ? "(無題)" : newTitleDisplay;
+        Description = $"ブック名変更: {character.DisplayName} B{bookNumber:D2} → {label}";
+    }
+
+    public void Execute() => _character.SetBookTitleBytes(_bookNumber, _newTitleBytes);
+    public void Undo() => _character.SetBookTitleBytes(_bookNumber, _oldTitleBytes);
+}
+
+public sealed class ClearPageAction : IUndoAction
+{
+    private readonly MacroPage _targetPage;
+    private readonly byte[][] _oldSlots = new byte[MacroBinaryCodec.SlotsPerPage][];
+
+    public string Description { get; }
+
+    public ClearPageAction(CharacterMacroStore character, int bookNumber, int pageNumber)
+    {
+        _targetPage = character.GetPage(bookNumber, pageNumber);
+        for (int i = 0; i < MacroBinaryCodec.SlotsPerPage; i++)
+        {
+            _oldSlots[i] = _targetPage.Slots[i].CloneBytes();
+        }
+
+        Description = $"パレット一括クリア: {character.DisplayName} B{bookNumber:D2}-P{pageNumber}";
+    }
+
+    public void Execute()
+    {
+        for (int i = 0; i < MacroBinaryCodec.SlotsPerPage; i++)
+        {
+            _targetPage.Slots[i].SetBytes(new byte[MacroBinaryCodec.SlotSize]);
+        }
+        _targetPage.IsDirty = true;
+    }
+
+    public void Undo()
+    {
+        for (int i = 0; i < MacroBinaryCodec.SlotsPerPage; i++)
+        {
+            _targetPage.Slots[i].SetBytes(_oldSlots[i]);
+        }
+        _targetPage.IsDirty = true;
+    }
+}
+
+public sealed class ClearBookAction : IUndoAction
+{
+    private readonly CharacterMacroStore _character;
+    private readonly int _bookNumber;
+    private readonly bool _clearTitle;
+    private readonly byte[] _oldTitleBytes;
+    private readonly List<(MacroPage Page, byte[][] OldSlots)> _affectedPages = new();
+
+    public string Description { get; }
+
+    public ClearBookAction(CharacterMacroStore character, int bookNumber, bool clearTitle)
+    {
+        _character = character;
+        _bookNumber = bookNumber;
+        _clearTitle = clearTitle;
+        _oldTitleBytes = character.CloneBookTitleBytes(bookNumber);
+
+        // 実際にデータが入っているページだけをクリア対象にし、未作成 .dat の不要生成を防ぐ
+        for (int p = 1; p <= 10; p++)
+        {
+            var page = character.GetPage(bookNumber, p);
+            if (!page.Slots.Any(s => !s.IsEmpty)) continue;
+
+            var oldSlots = new byte[MacroBinaryCodec.SlotsPerPage][];
+            for (int s = 0; s < MacroBinaryCodec.SlotsPerPage; s++)
+            {
+                oldSlots[s] = page.Slots[s].CloneBytes();
+            }
+            _affectedPages.Add((page, oldSlots));
+        }
+
+        string suffix = clearTitle ? "（ブック名含む）" : "";
+        Description = $"ブック一括クリア: {character.DisplayName} B{bookNumber:D2}{suffix}";
+    }
+
+    public void Execute()
+    {
+        foreach (var (page, _) in _affectedPages)
+        {
+            for (int s = 0; s < MacroBinaryCodec.SlotsPerPage; s++)
+            {
+                page.Slots[s].SetBytes(new byte[MacroBinaryCodec.SlotSize]);
+            }
+            page.IsDirty = true;
+        }
+
+        if (_clearTitle)
+        {
+            _character.SetBookTitleBytes(_bookNumber, new byte[MacroBinaryCodec.TitleRecordSize]);
+        }
+    }
+
+    public void Undo()
+    {
+        foreach (var (page, oldSlots) in _affectedPages)
+        {
+            for (int s = 0; s < MacroBinaryCodec.SlotsPerPage; s++)
+            {
+                page.Slots[s].SetBytes(oldSlots[s]);
+            }
+            page.IsDirty = true;
+        }
+
+        if (_clearTitle)
+        {
+            _character.SetBookTitleBytes(_bookNumber, _oldTitleBytes);
+        }
+    }
 }

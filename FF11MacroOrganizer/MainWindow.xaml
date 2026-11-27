@@ -59,17 +59,17 @@
         <Border Grid.Row="0" Background="White" BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" Padding="10,8" Margin="0,0,0,10">
             <DockPanel LastChildFill="False">
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="BtnOpenFolder" Content="フォルダを開く..." Padding="12,5" Margin="0,0,8,0" Click="BtnOpenFolder_Click"/>
-                    <Button x:Name="BtnUndo" Content="元に戻す (Ctrl+Z)" Padding="10,5" Margin="0,0,6,0" IsEnabled="False" Click="BtnUndo_Click"/>
-                    <Button x:Name="BtnRedo" Content="やり直し (Ctrl+Y)" Padding="10,5" Margin="0,0,14,0" IsEnabled="False" Click="BtnRedo_Click"/>
-                    <Button x:Name="BtnSave" Content="変更を保存" Padding="14,5" FontWeight="Bold"
+                    <Button x:Name="BtnOpenFolder" Content="フォルダを開く..." Padding="10,5" Margin="0,0,6,0" Click="BtnOpenFolder_Click"/>
+                    <Button x:Name="BtnUndo" Content="元に戻す (Ctrl+Z)" Padding="8,5" Margin="0,0,4,0" IsEnabled="False" Click="BtnUndo_Click"/>
+                    <Button x:Name="BtnRedo" Content="やり直し (Ctrl+Y)" Padding="8,5" Margin="0,0,8,0" IsEnabled="False" Click="BtnRedo_Click"/>
+                    <Button x:Name="BtnSave" Content="変更を保存" Padding="12,5" Margin="0,0,8,0" FontWeight="Bold"
                             Background="#E5E7EB" Foreground="#6B7280" BorderThickness="0"
                             IsEnabled="False" Click="BtnSave_Click"/>
                 </StackPanel>
 
                 <!-- 右側: 表示モード切替 & pol.exe 監視ステータス -->
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Background="#E5E7EB" CornerRadius="6" Padding="2" Margin="0,0,12,0"
+                    <Border Background="#E5E7EB" CornerRadius="6" Padding="2" Margin="0,0,8,0"
                             ToolTip="1ペイン（編集集中）と2ペイン（整理・複製）を切り替えます">
                         <StackPanel Orientation="Horizontal">
                             <RadioButton x:Name="RbSinglePane"
@@ -86,18 +86,18 @@
                         </StackPanel>
                     </Border>
 
-                    <Border x:Name="PolStatusBadge" Background="#DCFCE7" BorderBrush="#86EFAC" BorderThickness="1" CornerRadius="12" Padding="10,4">
+                    <Border x:Name="PolStatusBadge" Background="#DCFCE7" BorderBrush="#86EFAC" BorderThickness="1" CornerRadius="12" Padding="8,4">
                         <TextBlock x:Name="TxtPolStatus" Text="● FF11未起動 (保存可能)" Foreground="#166534" FontWeight="SemiBold" FontSize="12"/>
                     </Border>
                 </StackPanel>
             </DockPanel>
         </Border>
-
+        
         <!-- 2. メインエリア（左ペイン / 中央ブックコピー / 右ペイン） -->
         <Grid Grid.Row="1" Margin="0,0,0,10">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition x:Name="ColCenter" Width="122"/>
+                <ColumnDefinition x:Name="ColCenter" Width="98"/>
                 <ColumnDefinition x:Name="ColRight" Width="*"/>
             </Grid.ColumnDefinitions>
 
@@ -106,22 +106,41 @@
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top">
                         <DockPanel Margin="0,0,0,8">
+                            <Button x:Name="BtnClearLeft"
+                                    DockPanel.Dock="Right"
+                                    Content="クリア ▾"
+                                    FontSize="11"
+                                    Padding="8,2"
+                                    Foreground="#B91C1C"
+                                    Background="#FEF2F2"
+                                    BorderBrush="#FECACA"
+                                    Cursor="Hand"
+                                    ToolTip="現在のパレットまたはブックを一括クリア"
+                                    Click="BtnClearLeft_Click"
+                                    IsEnabled="False"/>
                             <TextBlock x:Name="TxtLeftPaneTitle" Text="左パレット" FontWeight="Bold" Foreground="#1F2937" VerticalAlignment="Center" Margin="0,0,8,0"/>
                             <TextBlock x:Name="TxtLeftDirty" Text="" Foreground="#DC2626" FontWeight="Bold" VerticalAlignment="Center"/>
                         </DockPanel>
-
+                        
                         <WrapPanel Margin="0,0,0,10" VerticalAlignment="Center">
-                            <TextBlock Text="キャラ:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
-                            <ComboBox x:Name="CmbLeftChar" Width="155" Margin="0,0,6,4" SelectionChanged="LeftChar_SelectionChanged"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,6,4" VerticalAlignment="Center">
+                                <TextBlock Text="キャラ:" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="12"/>
+                                <ComboBox x:Name="CmbLeftChar" Width="138" Margin="0,0,2,0" SelectionChanged="LeftChar_SelectionChanged"/>
+                                <Button x:Name="BtnRenameLeftChar" Content="✎" Width="22" ToolTip="キャラ表示名を設定" Click="BtnRenameLeftChar_Click" IsEnabled="False"/>
+                            </StackPanel>
 
-                            <TextBlock Text="ブック:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
-                            <ComboBox x:Name="CmbLeftBook" Width="130" Margin="0,0,2,4" SelectionChanged="LeftBook_SelectionChanged"/>
-                            <Button x:Name="BtnRenameLeftBook" Content="✎" Width="24" Margin="0,0,6,4" ToolTip="ブック名を変更" Click="BtnRenameLeftBook_Click" IsEnabled="False"/>
-                            
-                            <TextBlock Text="ページ:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
-                            <Button Content="▲" Width="24" Margin="0,0,2,4" ToolTip="前のページへ" Click="LeftPrevPage_Click"/>
-                            <ComboBox x:Name="CmbLeftPage" Width="68" Margin="0,0,2,4" SelectionChanged="LeftPage_SelectionChanged"/>
-                            <Button Content="▼" Width="24" Margin="0,0,0,4" ToolTip="次のページへ" Click="LeftNextPage_Click"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,6,4" VerticalAlignment="Center">
+                                <TextBlock Text="ブック:" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="12"/>
+                                <ComboBox x:Name="CmbLeftBook" Width="116" Margin="0,0,2,0" SelectionChanged="LeftBook_SelectionChanged"/>
+                                <Button x:Name="BtnRenameLeftBook" Content="✎" Width="22" ToolTip="ブック名を変更" Click="BtnRenameLeftBook_Click" IsEnabled="False"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4" VerticalAlignment="Center">
+                                <TextBlock Text="ページ:" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="12"/>
+                                <Button Content="▲" Width="22" Margin="0,0,2,0" ToolTip="前のページへ" Click="LeftPrevPage_Click"/>
+                                <ComboBox x:Name="CmbLeftPage" Width="64" Margin="0,0,2,0" SelectionChanged="LeftPage_SelectionChanged"/>
+                                <Button Content="▼" Width="22" ToolTip="次のページへ" Click="LeftNextPage_Click"/>
+                            </StackPanel>
                         </WrapPanel>
                     </StackPanel>
 
@@ -130,44 +149,133 @@
                 </DockPanel>
             </Border>
 
-            <!-- 中央：パレット／ブック単位コピー操作 -->
-            <StackPanel x:Name="CenterCopyPanel" Grid.Column="1" VerticalAlignment="Center" Margin="8,0">
-                <TextBlock Text="パレット単位コピー" FontSize="11" FontWeight="SemiBold" Foreground="#4B5563" HorizontalAlignment="Center" Margin="0,0,0,5"/>
-                <Button x:Name="BtnCopyPageLeftToRight" Content="左 → 右&#x0a;パレット複製" Padding="4,5" Margin="0,0,0,5"
-                        HorizontalContentAlignment="Center" IsEnabled="False" Click="BtnCopyPageLeftToRight_Click"/>
-                <Button x:Name="BtnCopyPageRightToLeft" Content="左 ← 右&#x0a;パレット複製" Padding="4,5" Margin="0,0,0,10"
-                        HorizontalContentAlignment="Center" IsEnabled="False" Click="BtnCopyPageRightToLeft_Click"/>
+            <!-- 中央コピーパネル -->
+            <StackPanel x:Name="CenterCopyPanel" Grid.Column="1" VerticalAlignment="Center" Margin="6,0">
+                <StackPanel.Resources>
+                    <Style x:Key="CopyArrowButtonStyle" TargetType="Button">
+                        <Setter Property="Height" Value="42"/>
+                        <Setter Property="Margin" Value="0,0,0,6"/>
+                        <Setter Property="Padding" Value="6,4"/>
+                        <Setter Property="Background" Value="White"/>
+                        <Setter Property="BorderBrush" Value="#CBD5E1"/>
+                        <Setter Property="BorderThickness" Value="1"/>
+                        <Setter Property="Cursor" Value="Hand"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.35"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </StackPanel.Resources>
 
-                <Separator Margin="4,0,4,10"/>
+                <!-- パレット単位（1ページ） -->
+                <TextBlock Text="パレット複製"
+                           FontSize="11"
+                           FontWeight="Bold"
+                           Foreground="#475569"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,5"/>
 
-                <TextBlock Text="ブック単位コピー" FontSize="11" FontWeight="SemiBold" Foreground="#4B5563" HorizontalAlignment="Center" Margin="0,0,0,5"/>
-                <Button x:Name="BtnCopyBookLeftToRight" Content="左 → 右&#x0a;ブック複製" Padding="4,5" Margin="0,0,0,5"
-                        HorizontalContentAlignment="Center" IsEnabled="False" Click="BtnCopyBookLeftToRight_Click"/>
-                <Button x:Name="BtnCopyBookRightToLeft" Content="左 ← 右&#x0a;ブック複製" Padding="4,5"
-                        HorizontalContentAlignment="Center" IsEnabled="False" Click="BtnCopyBookRightToLeft_Click"/>
+                <Button x:Name="BtnCopyPageLeftToRight"
+                        Style="{StaticResource CopyArrowButtonStyle}"
+                        ToolTip="左のパレット（20スロット）を右へ上書きコピー"
+                        Click="BtnCopyPageLeftToRight_Click">
+                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                        <Path Data="M 0,6 L 20,6 L 20,1 L 32,10 L 20,19 L 20,14 L 0,14 Z"
+                              Fill="#2563EB"
+                              Width="32" Height="20" Stretch="Uniform"/>
+                        <TextBlock Text="1ページ" FontSize="10" Foreground="#475569" HorizontalAlignment="Center" Margin="0,1,0,0"/>
+                    </StackPanel>
+                </Button>
+
+                <Button x:Name="BtnCopyPageRightToLeft"
+                        Style="{StaticResource CopyArrowButtonStyle}"
+                        Margin="0,0,0,10"
+                        ToolTip="右のパレット（20スロット）を左へ上書きコピー"
+                        Click="BtnCopyPageRightToLeft_Click">
+                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                        <Path Data="M 32,6 L 12,6 L 12,1 L 0,10 L 12,19 L 12,14 L 32,14 Z"
+                              Fill="#0D9488"
+                              Width="32" Height="20" Stretch="Uniform"/>
+                        <TextBlock Text="1ページ" FontSize="10" Foreground="#475569" HorizontalAlignment="Center" Margin="0,1,0,0"/>
+                    </StackPanel>
+                </Button>
+
+                <Separator Margin="6,2,6,10" Background="#CBD5E1"/>
+
+                <!-- ブック単位（全10ページ） -->
+                <TextBlock Text="ブック複製"
+                           FontSize="11"
+                           FontWeight="Bold"
+                           Foreground="#475569"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,5"/>
+
+                <Button x:Name="BtnCopyBookLeftToRight"
+                        Style="{StaticResource CopyArrowButtonStyle}"
+                        ToolTip="左のブック全体（10ページ・200スロット）を右へ上書きコピー"
+                        Click="BtnCopyBookLeftToRight_Click">
+                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                        <Path Data="M 0,2 L 13,10 L 0,18 L 0,13 L 5,10 L 0,7 Z M 14,2 L 27,10 L 14,18 L 14,13 L 19,10 L 14,7 Z"
+                              Fill="#2563EB"
+                              Width="32" Height="20" Stretch="Uniform"/>
+                        <TextBlock Text="全10ページ" FontSize="10" Foreground="#475569" HorizontalAlignment="Center" Margin="0,1,0,0"/>
+                    </StackPanel>
+                </Button>
+
+                <Button x:Name="BtnCopyBookRightToLeft"
+                        Style="{StaticResource CopyArrowButtonStyle}"
+                        Margin="0"
+                        ToolTip="右のブック全体（10ページ・200スロット）を左へ上書きコピー"
+                        Click="BtnCopyBookRightToLeft_Click">
+                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                        <Path Data="M 27,2 L 14,10 L 27,18 L 27,13 L 22,10 L 27,7 Z M 13,2 L 0,10 L 13,18 L 13,13 L 8,10 L 13,7 Z"
+                              Fill="#0D9488"
+                              Width="32" Height="20" Stretch="Uniform"/>
+                        <TextBlock Text="全10ページ" FontSize="10" Foreground="#475569" HorizontalAlignment="Center" Margin="0,1,0,0"/>
+                    </StackPanel>
+                </Button>
             </StackPanel>
-
             <!-- 右ペイン -->
             <Border x:Name="RightPaneBorder" Grid.Column="2" Background="White" BorderBrush="#D1D5DB" BorderThickness="1" CornerRadius="6" Padding="10">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top">
                         <DockPanel Margin="0,0,0,8">
+                            <Button x:Name="BtnClearRight"
+                                    DockPanel.Dock="Right"
+                                    Content="クリア ▾"
+                                    FontSize="11"
+                                    Padding="8,2"
+                                    Foreground="#B91C1C"
+                                    Background="#FEF2F2"
+                                    BorderBrush="#FECACA"
+                                    Cursor="Hand"
+                                    ToolTip="現在のパレットまたはブックを一括クリア"
+                                    Click="BtnClearRight_Click"
+                                    IsEnabled="False"/>
                             <TextBlock Text="右パレット" FontWeight="Bold" Foreground="#1F2937" VerticalAlignment="Center" Margin="0,0,8,0"/>
                             <TextBlock x:Name="TxtRightDirty" Text="" Foreground="#DC2626" FontWeight="Bold" VerticalAlignment="Center"/>
                         </DockPanel>
-
+                        
                         <WrapPanel Margin="0,0,0,10" VerticalAlignment="Center">
-                            <TextBlock Text="キャラ:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
-                            <ComboBox x:Name="CmbRightChar" Width="155" Margin="0,0,6,4" SelectionChanged="RightChar_SelectionChanged"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,6,4" VerticalAlignment="Center">
+                                <TextBlock Text="キャラ:" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="12"/>
+                                <ComboBox x:Name="CmbRightChar" Width="138" Margin="0,0,2,0" SelectionChanged="RightChar_SelectionChanged"/>
+                                <Button x:Name="BtnRenameRightChar" Content="✎" Width="22" ToolTip="キャラ表示名を設定" Click="BtnRenameRightChar_Click" IsEnabled="False"/>
+                            </StackPanel>
 
-                            <TextBlock Text="ブック:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
-                            <ComboBox x:Name="CmbRightBook" Width="130" Margin="0,0,2,4" SelectionChanged="RightBook_SelectionChanged"/>
-                            <Button x:Name="BtnRenameRightBook" Content="✎" Width="24" Margin="0,0,6,4" ToolTip="ブック名を変更" Click="BtnRenameRightBook_Click" IsEnabled="False"/>
-                            
-                            <TextBlock Text="ページ:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
-                            <Button Content="▲" Width="24" Margin="0,0,2,4" ToolTip="前のページへ" Click="RightPrevPage_Click"/>
-                            <ComboBox x:Name="CmbRightPage" Width="68" Margin="0,0,2,4" SelectionChanged="RightPage_SelectionChanged"/>
-                            <Button Content="▼" Width="24" Margin="0,0,0,4" ToolTip="次のページへ" Click="RightNextPage_Click"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,6,4" VerticalAlignment="Center">
+                                <TextBlock Text="ブック:" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="12"/>
+                                <ComboBox x:Name="CmbRightBook" Width="116" Margin="0,0,2,0" SelectionChanged="RightBook_SelectionChanged"/>
+                                <Button x:Name="BtnRenameRightBook" Content="✎" Width="22" ToolTip="ブック名を変更" Click="BtnRenameRightBook_Click" IsEnabled="False"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4" VerticalAlignment="Center">
+                                <TextBlock Text="ページ:" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="12"/>
+                                <Button Content="▲" Width="22" Margin="0,0,2,0" ToolTip="前のページへ" Click="RightPrevPage_Click"/>
+                                <ComboBox x:Name="CmbRightPage" Width="64" Margin="0,0,2,0" SelectionChanged="RightPage_SelectionChanged"/>
+                                <Button Content="▼" Width="22" ToolTip="次のページへ" Click="RightNextPage_Click"/>
+                            </StackPanel>
                         </WrapPanel>
                     </StackPanel>
 
