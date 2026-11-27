@@ -13,8 +13,11 @@ public static class MacroBinaryCodec
     public const int DatFileSize = HeaderSize + SlotSize * SlotsPerPage; // 7624 bytes
 
     public const int TitleRecordSize = 16;
+    public const int MaxBookTitleBytes = TitleRecordSize - 1; // 15 bytes (末尾 0x00 を確保)
     public const int BooksPerTitleFile = 20;
     public const int TtlFileSize = HeaderSize + TitleRecordSize * BooksPerTitleFile; // 344 bytes
+
+
 
     // 実ファイル検証で確認済みの標準ヘッダ（新規作成時の初期値）
     public static readonly byte[] DefaultDatHeader = [0x01, 0x00, 0x00, 0x00, 0x55, 0xD6, 0x41, 0x06];
@@ -70,6 +73,54 @@ public static class MacroBinaryCodec
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// ブック名テキストを 16バイトの mcr.ttl レコードへ変換し、実バイト数を計測する
+    /// </summary>
+    public static bool TryEncodeBookTitle(
+        string title,
+        out byte[] recordBytes,
+        out int byteCount,
+        out string? errorMessage)
+    {
+        recordBytes = new byte[TitleRecordSize];
+        byteCount = 0;
+        errorMessage = null;
+
+        if (string.IsNullOrEmpty(title))
+        {
+            return true; // 空文字は全ゼロ（無題）
+        }
+
+        foreach (char c in title)
+        {
+            if (char.IsControl(c))
+            {
+                errorMessage = "改行や制御文字はブック名に使用できません。";
+                return false;
+            }
+        }
+
+        try
+        {
+            byte[] encoded = SjisStrict.GetBytes(title);
+            byteCount = encoded.Length;
+
+            if (byteCount > MaxBookTitleBytes)
+            {
+                errorMessage = $"文字数が上限を超えています ({byteCount} / {MaxBookTitleBytes} バイト)";
+                return false;
+            }
+
+            Buffer.BlockCopy(encoded, 0, recordBytes, 0, encoded.Length);
+            return true;
+        }
+        catch (EncoderFallbackException ex)
+        {
+            errorMessage = $"FF11 (Shift_JIS) で使用できない文字が含まれています: '{ex.CharUnknown}'";
+            return false;
+        }
     }
 
     /// <summary>

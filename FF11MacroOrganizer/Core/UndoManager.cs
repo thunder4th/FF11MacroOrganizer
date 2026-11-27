@@ -211,4 +211,33 @@ public sealed class CopyBookAction : IUndoAction
             _dstChar.SetBookTitleBytes(_dstBook, titleBytes);
         }
     }
+
+    public sealed class RenameBookAction : IUndoAction
+    {
+        private readonly CharacterMacroStore _character;
+        private readonly int _bookNumber;
+        private readonly byte[] _oldTitleBytes;
+        private readonly byte[] _newTitleBytes;
+
+        public string Description { get; }
+
+        public RenameBookAction(
+            CharacterMacroStore character,
+            int bookNumber,
+            byte[] newTitleBytes,
+            string newTitleDisplay)
+        {
+            _character = character;
+            _bookNumber = bookNumber;
+            _oldTitleBytes = character.CloneBookTitleBytes(bookNumber);
+            _newTitleBytes = (byte[])newTitleBytes.Clone();
+
+            string label = string.IsNullOrEmpty(newTitleDisplay) ? "(無題)" : newTitleDisplay;
+            Description = $"ブック名変更: {character.DisplayName} B{bookNumber:D2} → {label}";
+        }
+
+        public void Execute() => _character.SetBookTitleBytes(_bookNumber, _newTitleBytes);
+        public void Undo() => _character.SetBookTitleBytes(_bookNumber, _oldTitleBytes);
+    }
+
 }

@@ -115,8 +115,9 @@
                             <ComboBox x:Name="CmbLeftChar" Width="155" Margin="0,0,6,4" SelectionChanged="LeftChar_SelectionChanged"/>
 
                             <TextBlock Text="ブック:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
-                            <ComboBox x:Name="CmbLeftBook" Width="130" Margin="0,0,6,4" SelectionChanged="LeftBook_SelectionChanged"/>
-
+                            <ComboBox x:Name="CmbLeftBook" Width="130" Margin="0,0,2,4" SelectionChanged="LeftBook_SelectionChanged"/>
+                            <Button x:Name="BtnRenameLeftBook" Content="✎" Width="24" Margin="0,0,6,4" ToolTip="ブック名を変更" Click="BtnRenameLeftBook_Click" IsEnabled="False"/>
+                            
                             <TextBlock Text="ページ:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
                             <Button Content="▲" Width="24" Margin="0,0,2,4" ToolTip="前のページへ" Click="LeftPrevPage_Click"/>
                             <ComboBox x:Name="CmbLeftPage" Width="68" Margin="0,0,2,4" SelectionChanged="LeftPage_SelectionChanged"/>
@@ -160,8 +161,9 @@
                             <ComboBox x:Name="CmbRightChar" Width="155" Margin="0,0,6,4" SelectionChanged="RightChar_SelectionChanged"/>
 
                             <TextBlock Text="ブック:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
-                            <ComboBox x:Name="CmbRightBook" Width="130" Margin="0,0,6,4" SelectionChanged="RightBook_SelectionChanged"/>
-
+                            <ComboBox x:Name="CmbRightBook" Width="130" Margin="0,0,2,4" SelectionChanged="RightBook_SelectionChanged"/>
+                            <Button x:Name="BtnRenameRightBook" Content="✎" Width="24" Margin="0,0,6,4" ToolTip="ブック名を変更" Click="BtnRenameRightBook_Click" IsEnabled="False"/>
+                            
                             <TextBlock Text="ページ:" VerticalAlignment="Center" Margin="0,0,4,4" FontSize="12"/>
                             <Button Content="▲" Width="24" Margin="0,0,2,4" ToolTip="前のページへ" Click="RightPrevPage_Click"/>
                             <ComboBox x:Name="CmbRightPage" Width="68" Margin="0,0,2,4" SelectionChanged="RightPage_SelectionChanged"/>

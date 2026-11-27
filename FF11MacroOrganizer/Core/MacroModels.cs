@@ -171,7 +171,7 @@ public sealed class CharacterMacroStore
     {
         var (unit, idx) = GetTitleLocation(bookNumber);
         string decoded = MacroBinaryCodec.DecodeFf11Text(unit.RawTitles[idx]);
-        return string.IsNullOrWhiteSpace(decoded) ? $"Book{bookNumber}" : decoded;
+        return string.IsNullOrWhiteSpace(decoded) ? $"Book{bookNumber:D2}" : decoded;
     }
 
     public byte[] CloneBookTitleBytes(int bookNumber)

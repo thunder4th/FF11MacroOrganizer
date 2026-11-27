@@ -31,6 +31,7 @@ public partial class MainWindow : Window
         public required TextBlock TxtLineNumbers { get; init; }
         public required TextBox TxtPreviewBody { get; init; }
         public required Button BtnEditSlot { get; init; }
+        public required Button BtnRenameBook { get; init; }
         public bool IsUpdating { get; set; }
 
         public CharacterMacroStore? CurrentCharacter { get; set; }
@@ -123,13 +124,14 @@ public partial class MainWindow : Window
         RootGrid.DragOver += RootGrid_DragOver;
 
         _panes[0] = InitializePane(
-            0, CmbLeftChar, CmbLeftBook, CmbLeftPage, TxtLeftDirty, GridLeftSlots,
-            LeftPreviewBorder, TxtLeftPreviewHeader, TxtLeftLineNumbers, TxtLeftPreviewBody, BtnEditLeftSlot);
+                    0, CmbLeftChar, CmbLeftBook, CmbLeftPage, TxtLeftDirty, GridLeftSlots,
+                    LeftPreviewBorder, TxtLeftPreviewHeader, TxtLeftLineNumbers, TxtLeftPreviewBody,
+                    BtnEditLeftSlot, BtnRenameLeftBook);
 
         _panes[1] = InitializePane(
             1, CmbRightChar, CmbRightBook, CmbRightPage, TxtRightDirty, GridRightSlots,
-            RightPreviewBorder, TxtRightPreviewHeader, TxtRightLineNumbers, TxtRightPreviewBody, BtnEditRightSlot);
-
+            RightPreviewBorder, TxtRightPreviewHeader, TxtRightLineNumbers, TxtRightPreviewBody,
+            BtnEditRightSlot, BtnRenameRightBook);
         // 両ペインの生成が完了してからページの初期選択を行う
         foreach (var pane in _panes)
         {
@@ -158,7 +160,8 @@ public partial class MainWindow : Window
         TextBlock txtPreviewHeader,
         TextBlock txtLineNumbers,
         TextBox txtPreviewBody,
-        Button btnEditSlot)
+        Button btnEditSlot,
+        Button btnRenameBook)
     {
         var borders = new Border[MacroBinaryCodec.SlotsPerPage];
         var keyTexts = new TextBlock[MacroBinaryCodec.SlotsPerPage];
@@ -252,7 +255,8 @@ public partial class MainWindow : Window
             TxtPreviewHeader = txtPreviewHeader,
             TxtLineNumbers = txtLineNumbers,
             TxtPreviewBody = txtPreviewBody,
-            BtnEditSlot = btnEditSlot
+            BtnEditSlot = btnEditSlot,
+            BtnRenameBook = btnRenameBook,
         };
     }
 
@@ -609,6 +613,38 @@ public partial class MainWindow : Window
         if (pane.CurrentCharacter == null) return;
         int next = ((pane.CurrentPageNumber - 1 + delta + 10) % 10) + 1;
         pane.CmbPage.SelectedIndex = next - 1;
+    }
+
+    private void BtnRenameLeftBook_Click(object sender, RoutedEventArgs e) => OpenBookRenameDialog(_panes[0]);
+    private void BtnRenameRightBook_Click(object sender, RoutedEventArgs e) => OpenBookRenameDialog(_panes[1]);
+
+    private void OpenBookRenameDialog(PaneState pane)
+    {
+        var ch = pane.CurrentCharacter;
+        if (ch == null) return;
+
+        int bookNum = pane.CurrentBook;
+        byte[] beforeBytes = ch.CloneBookTitleBytes(bookNum);
+        string currentRawTitle = MacroBinaryCodec.DecodeFf11Text(beforeBytes);
+        string targetLabel = $"{ch.DisplayName} / Book {bookNum:D2}";
+
+        var dlg = new BookRenameDialog(targetLabel, currentRawTitle)
+        {
+            Owner = this,
+            Icon = Icon
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        // 変更がない場合は Undo 履歴・Dirty フラグを汚さない
+        if (beforeBytes.AsSpan().SequenceEqual(dlg.EncodedTitleBytes)) return;
+
+        var action = new RenameBookAction(ch, bookNum, dlg.EncodedTitleBytes, dlg.NewTitleText);
+        _undoManager.Execute(action);
+
+        RefreshBookComboBox(_panes[0]);
+        RefreshBookComboBox(_panes[1]);
+        RefreshAllUi();
+        TxtStatusMessage.Text = $"{action.Description} を反映しました（未保存状態・Ctrl+Zで取り消し可能）";
     }
 
     // ---------- 選択管理＆ドラッグ＆ドロップ処理 ----------
@@ -1105,6 +1141,8 @@ public partial class MainWindow : Window
     private void RefreshPaneVisuals(PaneState pane)
     {
         var page = pane.GetCurrentPage();
+        pane.BtnRenameBook.IsEnabled = pane.CurrentCharacter != null;
+
         if (page == null)
         {
             pane.TxtDirty.Text = "";
@@ -1120,7 +1158,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        pane.TxtDirty.Text = page.IsDirty ? "* 未保存の変更あり" : "";
+        bool isTitleDirty = pane.CurrentCharacter != null &&
+            (pane.CurrentBook <= MacroBinaryCodec.BooksPerTitleFile
+                ? pane.CurrentCharacter.TitleFile1.IsDirty
+                : pane.CurrentCharacter.TitleFile2.IsDirty);
+
+        pane.TxtDirty.Text = (page.IsDirty || isTitleDirty) ? "* 未保存の変更あり" : "";
 
         for (int i = 0; i < MacroBinaryCodec.SlotsPerPage; i++)
         {
