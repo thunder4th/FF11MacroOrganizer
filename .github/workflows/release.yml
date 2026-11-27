@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'リリースバージョン (例: 2.1.1)'
+        description: 'リリースバージョン / Release version (e.g. 2.2.0)'
         required: true
-        default: '2.1.1'
+        default: '2.2.0'
 
 permissions:
   contents: write
@@ -110,14 +110,14 @@ jobs:
 
           # GitHub Assets の並び順（アルファベット昇順）と揃えて SHA-256 チェックサムを自動生成
           $hashes = @()
-          foreach ($file in @($zipFd, $zipSc)) {
-            $h = (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLower();
-            $name = Split-Path -Leaf $file;
-            $hashes += ("{0}  {1}" -f $h, $name);
+          foreach ($file in @($zipFd,$zipSc)) {
+            $h = (Get-FileHash -Path$file -Algorithm SHA256).Hash.ToLower();
+            $name = Split-Path -Leaf$file;
+            $hashes += ("{0}  {1}" -f $h,$name);
           }
           $hashes | Set-Content -Path "dist/SHA256SUMS.txt" -Encoding UTF8
 
-          $body = @( "### 配布ファイルの選び方", "- **self-contained.zip（推奨・ランタイム同梱版）**: .NET 10 未導入の PC でもそのまま起動できます。", "- **framework-dependent.zip（軽量版）**: .NET 10 Desktop Runtime (x64) 導入済み環境向けです。", "", "### SHA-256 チェックサム", '```text' ) + $hashes + @(
+          $body = @( "### 配布ファイルの選び方 / Choosing a Download", "- **self-contained.zip（推奨・ランタイム同梱版 / Recommended, Standalone）**: .NET 10 未導入の PC でもそのまま起動できます / Runs without installing .NET 10.", "- **framework-dependent.zip（軽量版 / Lightweight）**: .NET 10 Desktop Runtime (x64) 導入済み環境向けです / Requires .NET 10 Desktop Runtime (x64).", "", "### SHA-256 チェックサム / SHA-256 Checksums", '```text' ) + $hashes + @(
             '```'
           )
           $body -join "`n" | Set-Content -Path "dist/release_notes.md" -Encoding UTF8
